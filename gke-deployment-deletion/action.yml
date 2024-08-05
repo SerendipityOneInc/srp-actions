@@ -1,0 +1,108 @@
+name: gke-deployment-deletion
+description: "Delete Deployment on GKE"
+
+inputs:
+  gcp_project_id:
+    type: string
+    required: false
+    default: "just-for-test-403604"
+  gke_location:
+    type: string
+    required: false
+    default: " us-central1"
+  gke_cluster:
+    type: string
+    required: false
+    default: "dreampal-cluster-dev"
+  gke_namespace:
+    description: "namespace of the serivce/pod to deploy"
+    type: string
+    required: false
+    default: "default"
+  deployment_name:
+    type: string
+    required: true
+  gke_sa_key:
+    description: "GKE service account key"
+    required: true
+  environment:
+    type: string
+    default: "dev"
+    description: "Environment"
+    required: false
+  FEISHU_CUSTOMERBOT_WEBHOOK:
+    description: "Feishu customer bot webhook"
+    type: string
+    required: true
+  FEISHU_CUSTOMERBOT_SECRET:
+    description: "Feishu customer bot secret"
+    type: string
+    required: true  
+
+runs: 
+  using: 'composite'
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - id: 'gcp-auth'
+      name: Auth Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        project_id: ${{ inputs.gcp_project_id }}
+        credentials_json: ${{ inputs.gke_sa_key }}
+    
+    - id: 'gke-get-credentials'
+      name: Get GKE credentials
+      uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ inputs.gke_cluster }}
+        location: ${{ inputs.gke_location }}
+
+    - id: 'kustomize-deploy'
+      name: "Deploy to k8s"
+      shell: bash
+      run:  |
+        cd kustomize/overlays/${{ inputs.environment }}
+        kubectl delete deployment ${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} || true
+
+    - id: deletion-success-notification
+      name: Deploy success notification
+      uses: SerendipityOneInc/feishu-actions@main
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** 🗑️ ${{ inputs.deployment_name }} deleted ! **
+          - Version: ${{ inputs.image_tag_to_deploy }}
+          - GCP Project: ${{ inputs.gcp_project_id }}
+          - GKE Cluster: ${{ inputs.gke_cluster }}
+          - GKE Location: ${{ inputs.gke_location }}
+          - GKE Namespace: ${{ inputs.gke_namespace }}
+
+    - id: deletion-failure-notification
+      name: Deploy failure notification
+      uses: SerendipityOneInc/feishu-actions@main
+      if: failure()
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** 🚫 ${{ inputs.deployment_name }} failed to delete ! **
+          - Version: ${{ inputs.image_tag_to_deploy }}
+          - GCP Project: ${{ inputs.gcp_project_id }}
+          - GKE Cluster: ${{ inputs.gke_cluster }}
+          - GKE Location: ${{ inputs.gke_location }}
+          - GKE Namespace: ${{ inputs.gke_namespace }}

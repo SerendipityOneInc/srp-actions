@@ -1,0 +1,133 @@
+name: deploy-to-gke
+
+on:
+  workflow_call:
+    inputs:
+      repo_name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      deploy_clusters:
+        required: true
+        type: string
+      gke_namespace:
+        required: true
+        type: string
+      gke_deployment_name:
+        required: true
+        type: string
+      image_to_deploy:
+        required: true
+        type: string
+      image_tag_to_deploy:
+        required: true
+        type: string
+      should_export_env:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DEV_DEPLOYMENT_GKE_SA_KEY:
+        required: true
+      STAGING_DEPLOYMENT_GKE_SA_KEY:
+        required: true
+      PRODUCTION_DEPLOYMENT_GKE_SA_KEY:
+        required: true
+      FEISHU_CUSTOMERBOT_WEBHOOK:
+        required: true
+      FEISHU_CUSTOMERBOT_SECRET:
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  ENV_FILE: /tmp/${{ inputs.repo_name }}.env
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        deploy_cluster: ${{ fromJson(inputs.deploy_clusters) }}
+    environment: ${{ inputs.environment }}
+    steps:
+      - id: "set-environment-vars"
+        name: "Set environment-specific variables"
+        run: |
+          case "${{ inputs.environment }}" in
+            dev)
+              echo "GCP_PROJECT=${{ vars.DEV_GCP_PROJECT }}" >> $GITHUB_ENV
+              echo "GKE_LOCATION_PRIMARY=${{ vars.DEV_GKE_LOCATION_PRIMARY }}" >> $GITHUB_ENV
+              echo "GKE_CLUSTER_PRIMARY=${{ vars.DEV_GKE_CLUSTER_PRIMARY }}" >> $GITHUB_ENV
+
+              ;;
+            staging)
+              echo "GCP_PROJECT=${{ vars.STAGING_GCP_PROJECT }}" >> $GITHUB_ENV
+              echo "GKE_LOCATION_PRIMARY=${{ vars.STAGING_GKE_LOCATION_PRIMARY }}" >> $GITHUB_ENV
+              echo "GKE_CLUSTER_PRIMARY=${{ vars.STAGING_GKE_CLUSTER_PRIMARY }}" >> $GITHUB_ENV
+
+              ;;
+            production)
+              echo "GCP_PROJECT=${{ vars.PRODUCTION_GCP_PROJECT }}" >> $GITHUB_ENV
+              echo "GKE_LOCATION_PRIMARY=${{ vars.PRODUCTION_GKE_LOCATION_PRIMARY }}" >> $GITHUB_ENV
+              echo "GKE_CLUSTER_PRIMARY=${{ vars.PRODUCTION_GKE_CLUSTER_PRIMARY }}" >> $GITHUB_ENV
+
+              ;;
+            *)
+              echo "Unsupported environment: ${{ inputs.environment }}"
+              exit 1
+              ;;
+          esac
+
+          IFS='/' read -r LOCATION CLUSTER <<< "${{ matrix.deploy_cluster }}"
+          echo "LOCATION=$LOCATION" >> $GITHUB_ENV
+          echo "CLUSTER=$CLUSTER" >> $GITHUB_ENV
+          echo "REPO_NAME=${{ inputs.repo_name }}" >> $GITHUB_ENV
+          echo "GKE_NAMESPACE=${{ inputs.gke_namespace }}" >> $GITHUB_ENV
+          echo "GKE_DEPLOYMENT_NAME=${{ inputs.gke_deployment_name }}" >> $GITHUB_ENV
+          echo "IMAGE_TO_DEPLOY=${{ inputs.image_to_deploy }}" >> $GITHUB_ENV
+          echo "IMAGE_TAG_TO_DEPLOY=${{ inputs.image_tag_to_deploy }}" >> $GITHUB_ENV
+
+          if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+            touch ${{ env.ENV_FILE }}
+            echo "LOCATION=$LOCATION" >> ${{ env.ENV_FILE }}
+            echo "CLUSTER=$CLUSTER" >> ${{ env.ENV_FILE }}
+            echo "REPO_NAME=${{ inputs.repo_name }}" >> ${{ env.ENV_FILE }}
+            echo "GKE_NAMESPACE=${{ inputs.gke_namespace }}" >> ${{ env.ENV_FILE }}
+            echo "GKE_DEPLOYMENT_NAME=${{ inputs.gke_deployment_name }}" >> ${{ env.ENV_FILE }}
+            echo "IMAGE_TO_DEPLOY=${{ inputs.image_to_deploy }}" >> ${{ env.ENV_FILE }}
+            echo "IMAGE_TAG_TO_DEPLOY=${{ inputs.image_tag_to_deploy }}" >> ${{ env.ENV_FILE }}
+          fi
+
+
+      - id: "deploy-mcs-to-gke"
+        uses: SerendipityOneInc/srp-actions/gke-mcs@main
+        with:
+          repo_name: ${{ env.REPO_NAME }}
+          gcp_project_id: ${{ env.GCP_PROJECT }}
+          gke_location: ${{ env.GKE_LOCATION_PRIMARY }}
+          gke_cluster: ${{ env.GKE_CLUSTER_PRIMARY }}
+          gke_namespace: ${{ env.GKE_NAMESPACE }}
+          gke_sa_key: ${{ inputs.environment == 'dev' && secrets.DEV_DEPLOYMENT_GKE_SA_KEY || inputs.environment == 'staging' && secrets.STAGING_DEPLOYMENT_GKE_SA_KEY || secrets.PRODUCTION_DEPLOYMENT_GKE_SA_KEY }}
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+          environment: ${{ inputs.environment }}
+
+      - id: "deploy-to-gke"
+        uses: SerendipityOneInc/srp-actions/gke-deployment@main
+        with:
+          repo_name: ${{ env.REPO_NAME }}
+          env_file: ${{ env.ENV_FILE }}
+          should_export_env: ${{ inputs.should_export_env }}
+          gcp_project_id: ${{ env.GCP_PROJECT }}
+          gke_location: ${{ env.LOCATION }}
+          gke_cluster: ${{ env.CLUSTER }}
+          gke_namespace: ${{ env.GKE_NAMESPACE }}
+          deployment_name: ${{ env.GKE_DEPLOYMENT_NAME }}
+          image_to_deploy: ${{ env.IMAGE_TO_DEPLOY }}
+          image_tag_to_deploy: ${{ env.IMAGE_TAG_TO_DEPLOY }}
+          gke_sa_key: ${{ inputs.environment == 'dev' && secrets.DEV_DEPLOYMENT_GKE_SA_KEY || inputs.environment == 'staging' && secrets.STAGING_DEPLOYMENT_GKE_SA_KEY || secrets.PRODUCTION_DEPLOYMENT_GKE_SA_KEY }}
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+          environment: ${{ inputs.environment }}

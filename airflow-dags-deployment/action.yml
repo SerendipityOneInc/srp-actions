@@ -1,0 +1,116 @@
+name: gke-deployment
+description: "Deploy Airflow Dags to GKE"
+
+inputs:
+  gcp_project_id:
+    type: string
+    required: true
+  repo_name:
+    type: string
+    required: false
+  version:
+    type: string
+    required: true
+  gcloud_sa_key:
+    description: "gcloud service account key"
+    required: true
+  environment:
+    type: string
+    default: "dev"
+    description: "Environment"
+    required: false
+  FEISHU_CUSTOMERBOT_WEBHOOK:
+    description: "Feishu customer bot webhook"
+    type: string
+    required: true
+  FEISHU_CUSTOMERBOT_SECRET:
+    description: "Feishu customer bot secret"
+    type: string
+    required: true  
+
+runs: 
+  using: 'composite'
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref }}
+
+    - id: 'install-gsutil'
+      name: Install gsutil
+      shell: bash
+      run: sudo apt-get install -y google-cloud-cli
+
+    - id: 'gcp-auth'
+      name: Auth Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        project_id: ${{ inputs.gcp_project_id }}
+        credentials_json: ${{ inputs.gcloud_sa_key }}
+
+    - id: 'set-credentials-file'
+      name: Set Credentials File
+      shell: bash
+      run: >-
+          gcloud auth login
+          --cred-file=${{steps.gcp-auth.outputs.credentials_file_path}}
+
+    - id: 'list-buckets'
+      name: List buckets
+      shell: bash
+      run: gsutil ls
+
+    - id: "replace-version"
+      name: "Replace DAG version"
+      shell: bash
+      run: |
+        TAG_NAME=${{ inputs.version }}
+        find dags -maxdepth 1 -name "*.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
+
+    - id: 'upload-dags-to-gcs'
+      name: Upload DAGs to GCS Airflow DAGS Folder
+      shell: bash
+      run: gsutil -m rsync -d -r dags gs://srp_airflow-${{ inputs.environment }}/dags/
+
+    - id: deploy-success-notification
+      name: Deploy success notification
+      uses: SerendipityOneInc/feishu-actions@main
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** 🚀 Airflow DAGS deployed success! **
+          - Repository: ${{ inputs.repo_name }}
+          - Version: ${{ inputs.version }}
+          - GCP Project: ${{ inputs.gcp_project_id }}
+          - Environment: ${{ inputs.environment }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}
+
+    - id: deploy-failure-notification
+      name: Deploy failure notification
+      uses: SerendipityOneInc/feishu-actions@main
+      if: failure()
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** ❌ Airflow DAGS deployed failed! **
+          - Repository: ${{ inputs.repo_name }}
+          - Version: ${{ inputs.version }}
+          - GCP Project: ${{ inputs.gcp_project_id }}
+          - Environment: ${{ inputs.environment }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}

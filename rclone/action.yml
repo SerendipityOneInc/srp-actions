@@ -1,0 +1,110 @@
+name: rclone
+description: "run rclone command, we support limited r2 and gcs remotes, used for syncing local files to r2 or gcs."
+
+inputs:
+  rclone_cmd:
+    description: "rclone command to run"
+    required: true
+    type: string
+    default: "rclone listremotes"
+  FEISHU_CUSTOMERBOT_WEBHOOK:
+    description: "Feishu customer bot webhook"
+    type: string
+    required: true
+  FEISHU_CUSTOMERBOT_SECRET:
+    description: "Feishu customer bot secret"
+    type: string
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - id: "setup-rclone"
+      name: Setup Rclone
+      uses: AnimMouse/setup-rclone@v1
+      with:
+        rclone_config: |
+
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = 72fd6e5f11826b10c89f1af124b10777
+          secret_access_key = e21531686f956c75f76b81202726e1f2d08a1d72ce38673593ac4c233f271eee
+          endpoint = https://70fbb1b859e48a3485be3808a297f610.r2.cloudflarestorage.com
+          acl = private
+
+          [gcs-dev]
+          type = google cloud storage
+          client_id = rclone
+          project_number = just-for-test-403604
+          user_project = just-for-test-403604
+          service_account_file = /config/rclone/sa-rclone-dev.json
+          bucket_policy_only = true
+
+          [gcs-staging]
+          type = google cloud storage
+          client_id = rclone
+          project_number = project-zero-402204
+          user_project = project-zero-402204
+          service_account_file = /config/rclone/sa-rclone-staging.json
+          bucket_policy_only = true
+
+          [gcs-production]
+          type = google cloud storage
+          client_id = rclone
+          project_number = dreampal-prod
+          user_project = dreampal-prod
+          service_account_file = /config/rclone/sa-rclone-production.json
+          bucket_policy_only = true
+
+        disable_base64: true
+
+    - id: "rclone-list-remotes"
+      name: Rclone listremotes
+      shell: bash
+      run: |
+        echo "listing all supported remotes"
+        rclone listremotes
+
+    - id: "rclone-cmd"
+      name: Run rclone cmd
+      shell: bash
+      run: |
+        ${{ inputs.rclone_cmd}}
+
+    - id: rclone-success-notification
+      name: Rclone success notification
+      uses: SerendipityOneInc/feishu-actions@main
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** 💡 Rclone command success! **
+          - CMD: ${{ inputs.rclone_cmd }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}
+
+    - id: rclone-failure-notification
+      name: Rclone failure notification
+      uses: SerendipityOneInc/feishu-actions@main
+      if: failure()
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** ❌ Rclone command failed! **
+          - CMD: ${{ inputs.rclone_cmd }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}

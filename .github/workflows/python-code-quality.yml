@@ -1,0 +1,79 @@
+name: python-code-quality
+
+on:
+    workflow_call:
+        inputs:
+            python_version:
+                description: 'Python version'
+                type: string
+                required: true
+                default: '3.10'
+            pylint_fail_score:
+                description: 'Pylint fail score'
+                type: number
+                required: true
+                default: 9
+            repo_name:
+                description: 'Repository name'
+                type: string
+                required: true
+        secrets:
+            FEISHU_CUSTOMERBOT_WEBHOOK:
+                required: true
+            FEISHU_CUSTOMERBOT_SECRET:
+                required: true    
+jobs:
+    build-and-test:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                python-version: ${{ inputs.python_version}}
+                cache: 'pip' # caching pip dependencies
+            - name: Install dependencies
+              run: |
+                pip install -r requirements.txt
+                [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
+            - name: Check code formatting with black
+              run: black --check .
+            - name: Check import order with isort
+              run: isort --check-only .
+            - name: Analysing the code with pylint
+              run: | 
+                pylint $(find . -name "*.py") --fail-under=${{ inputs.pylint_fail_score }}    
+            - name: Run unit tests
+              id: run-unit-tests
+              run: |
+                export PYTHONPATH=$PYTHONPATH:$(pwd)
+                [ -f .env.example.env ] && cp .env.example .env
+                [ -f ${{ inputs.repo_name }}-dev.env.example ] && cp ${{ inputs.repo_name }}-dev.env.example ${{ inputs.repo_name }}-dev.env
+                pytest tests
+            - name: Upload logs as an artifact
+              if: failure() && steps.run-unit-tests.outcome == 'failure'
+              uses: actions/upload-artifact@v3
+              with:
+                name: uvicorn-logs
+                path: uvicorn.log
+            - name: Notify Lark Bot
+              id: notify-lark-bot
+              if: failure()
+              uses: SerendipityOneInc/feishu-actions@main
+              with:
+                # The custom action has bugs, the with here is useless, just to supress vscode error
+                FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+                FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+              env:
+                # Following are used for feishu message
+                FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+                FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+                MSGTYPE: interactive
+                CONTENT: |
+                    ** ❌ [${{ github.event.repository.name }}](${{ github.event.repository.url }}) Code Quality Check Failed **
+                    ---
+                    - Pull Request: [${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})
+                    - Actor: ${{ github.actor}}
+                    - Commit: [${{ github.event.head_commit.id }}](${{ github.event.head_commit.url }})
+                    - Author: ${{ github.event.head_commit.author.name }}

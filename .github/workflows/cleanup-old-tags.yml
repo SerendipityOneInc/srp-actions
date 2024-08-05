@@ -1,0 +1,58 @@
+name: Cleanup Old Tags
+
+on:
+  workflow_call:
+    secrets:
+      GH_RELEASE_TOKEN:
+        required: true
+
+jobs:
+  cleanup-old-tags:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.email "github-actions@srp.one"
+          git config --global user.name "github actions"
+
+      - name: Delete Old Alpha Tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          OLD_ALPHA_TAGS=$(git tag -l 'v*.*.*-alpha.*' --sort=creatordate | sed '$d' | while read tag; do
+            TAG_DATE=$(git log -1 --format=%ai "${tag}")
+            if [[ $(date -d "$TAG_DATE" +%s) -lt $(date -d '14 days ago' +%s) ]]; then
+              echo "$tag"
+            fi
+          done)
+
+          for TAG in $OLD_ALPHA_TAGS; do
+            git push origin --delete "$TAG"
+            git tag -d "$TAG"
+            echo "Deleted tag $TAG"
+          done
+
+      - name: Delete Old Beta Tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          OLD_BETA_TAGS=$(git tag -l 'v*.*.*-beta.*' --sort=creatordate | sed '$d' | while read tag; do
+            TAG_DATE=$(git log -1 --format=%ai "${tag}")
+            if [[ $(date -d "$TAG_DATE" +%s) -lt $(date -d '14 days ago' +%s) ]]; then
+              echo "$tag"
+            fi
+          done)
+
+          for TAG in $OLD_BETA_TAGS; do
+            git push origin --delete "$TAG"
+            git tag -d "$TAG"
+            echo "Deleted tag $TAG"
+          done

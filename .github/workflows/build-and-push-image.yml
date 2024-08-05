@@ -1,0 +1,153 @@
+name: build-and-push-image
+
+on:
+  workflow_call:
+    inputs:
+      runner_name:
+        description: 'The name of the runner to run the workflow on'
+        type: string
+        default: ubuntu-latest
+        required: false
+      image_name:
+        description: 'The name of the image to build'
+        type: string
+        default: ${{ github.repository }}
+        required: false
+      context:
+        description: 'The context to build the image from'
+        type: string
+        default: .
+        required: false
+      dockerfile:
+        description: 'The dockerfile to build'
+        type: string
+        default: Dockerfile
+        required: false
+      build_args:
+        description: 'Docker build arguments'
+        required: false
+        type: string
+    secrets:
+        FEISHU_CUSTOMERBOT_WEBHOOK:
+            required: true
+        FEISHU_CUSTOMERBOT_SECRET:
+            required: true    
+    outputs:
+      image_tag:
+        description: 'The image tag'
+        value: ${{ jobs.build-and-push-app-image.outputs.image_tag }}
+      image_digest:
+        description: 'The image digest'
+        value: ${{ jobs.build-and-push-app-image.outputs.image_digest }}
+    
+env:
+    # Use docker.io for Docker Hub if empty
+    REGISTRY: ghcr.io
+    # github.repository as <account>/<repo>
+jobs:
+    build-and-push-app-image:
+      runs-on: ${{ inputs.runner_name }}
+      permissions:
+        contents: read
+        packages: write
+        # This is used to complete the identity challenge
+        # with sigstore/fulcio when running outside of PRs.
+        id-token: write
+      
+      outputs:
+        image_tag: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        image_digest: ${{ steps.build-and-push.outputs.digest }}
+  
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+  
+        # Install the cosign tool except on PR
+        # https://github.com/sigstore/cosign-installer
+        - name: Install cosign
+          if: github.event_name != 'pull_request'
+          uses: sigstore/cosign-installer@v3.3.0 #v3.3.0
+          with:
+            cosign-release: 'v2.2.2'
+  
+        # Set up BuildKit Docker container builder to be able to build
+        # multi-platform images and export cache
+        # https://github.com/docker/setup-buildx-action
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@v3.0.0 # v3.0.0
+  
+        # Login against a Docker registry except on PR
+        # https://github.com/docker/login-action
+        - name: Log into registry ${{ env.REGISTRY }}
+          if: github.event_name != 'pull_request'
+          uses: docker/login-action@v3.0.0 # v3.0.0
+          with:
+            registry: ${{ env.REGISTRY }}
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+  
+        # Extract metadata (tags, labels) for Docker
+        # https://github.com/docker/metadata-action
+        - name: Extract Docker metadata
+          id: meta
+          uses: docker/metadata-action@v5.0.0 # v5.0.0
+          with:
+            images: ${{ env.REGISTRY }}/${{ inputs.image_name }}
+  
+        - name: Create Manifest File
+          run: |
+            echo "GIT_COMMIT_HASH=$(git rev-parse HEAD)" > manifest.metadata
+            echo "GIT_BRANCH_NAME=$(git branch --show-current)" >> manifest.metadata
+            echo "GIT_TAGS=$(git tag --contains)" >> manifest.metadata
+            echo "IMAGE_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')" >> manifest.metadata
+            cat manifest.metadata
+  
+        # Build and push Docker image with Buildx (don't push on PR)
+        # https://github.com/docker/build-push-action
+        - name: Build and push Docker image ${{ steps.meta.outputs.tags }}
+          id: build-and-push
+          uses: docker/build-push-action@v5.0.0 # v5.0.0
+          with:
+            context: ${{ inputs.context }}
+            file: ${{ inputs.dockerfile }}
+            build-args: ${{ inputs.build_args }}
+            push: ${{ github.event_name != 'pull_request' }}
+            tags: ${{ steps.meta.outputs.tags }}
+            labels: ${{ steps.meta.outputs.labels }}
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
+          
+        # Sign the resulting Docker image digest except on PRs.
+        # This will only write to the public Rekor transparency log when the Docker
+        # repository is public to avoid leaking data.  If you would like to publish
+        # transparency data even for private images, pass --force to cosign below.
+        # https://github.com/sigstore/cosign
+        - name: Sign the published Docker image
+          if: ${{ github.event_name != 'pull_request' }}
+          env:
+            # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+            TAGS: ${{ steps.meta.outputs.tags }}
+            DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          # This step uses the identity token to provision an ephemeral certificate
+          # against the sigstore community Fulcio instance.
+          run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        - name: Notify Lark Bot
+          id: notify-lark-bot
+          uses: SerendipityOneInc/feishu-actions@main
+          with:
+            # The custom action has bugs, the with here is useless, just to supress vscode error
+            FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+            FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+          env:
+            # Following are used for feishu message
+            FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+            FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+            MSGTYPE: interactive
+            CONTENT: |
+              ** ✅ Build [${{ github.event.repository.name }}](${{ github.event.head_commit.url }}) success! **
+              - Build ${{ inputs.image_name }} successful!
+              - ${{ github.event.head_commit.message }}
+              ** [${{ github.ref_name}}](${{ fromJSON(steps.meta.outputs.json).tags[0] }}) by ${{ github.actor }} **
+              ** DIGEST **
+              - ${{ steps.build-and-push.outputs.digest }}
+  

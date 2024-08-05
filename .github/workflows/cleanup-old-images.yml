@@ -1,0 +1,157 @@
+name: Cleanup Old Images
+
+on:
+  workflow_call:
+    secrets:
+      GH_RELEASE_TOKEN:
+        required: true
+
+jobs:
+  cleanup-old-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.email "github-actions@srp.one"
+          git config --global user.name "github actions"
+
+      - name: Set Environment Variables
+        run: |
+          echo "REPO=${GITHUB_REPOSITORY##*/}" >> ${GITHUB_ENV}
+          echo "OWNER=orgs/${GITHUB_REPOSITORY_OWNER,,}" >> ${GITHUB_ENV}
+
+      - name: Clean up old images for ${{ env.OWNER }}/${{ env.REPO }}
+        run: |
+          echo "cleanup old images for ${{ env.OWNER }}/${{ env.REPO }}"
+
+      # - name: Delete all untagged Images
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      #   run: |
+      #     # Get all tags and their updated date, except the latest tag
+      #     TAGS_AND_NAME=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+      #       "https://api.github.com/$OWNER/packages/container/$REPO/versions?per_page=1000" \
+      #       | jq -r '.[] | select(.metadata.container.tags | length == 0) |(.id | tostring) + " " + .name')
+
+      #     while IFS=' ' read -r VERSION_ID TAG; do
+      #       # Delete the image with the specific version ID
+      #       curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+      #         "https://api.github.com/$OWNER/packages/container/$REPO/versions/$VERSION_ID"
+      #       echo "Deleted image $REPO:$TAG"
+      #     done <<< "$TAGS_AND_NAME"
+
+      # - name: Delete all sig Images
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      #     OWNER: ${{ env.OWNER }}
+      #     REPO: ${{ env.REPO }}
+      #   run: |
+      #     # Get all tags and their updated date, except the latest tag
+      #     TAGS_AND_NAME=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+      #       "https://api.github.com/$OWNER/packages/container/$REPO/versions?per_page=1000" \
+      #       | jq -r '.[] | select(.metadata.container.tags[] | startswith("sha") and endswith(".sig")) |(.id | tostring) + " " + .name')
+
+      #     while IFS=' ' read -r VERSION_ID TAG; do
+      #       # Delete the image with the specific version ID
+      #       curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+      #         "https://api.github.com/$OWNER/packages/container/$REPO/versions/$VERSION_ID"
+      #       echo "Deleted image $REPO:$TAG"
+      #     done <<< "$TAGS_AND_NAME"
+
+      - name: Delete Old Alpha Images
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          OWNER: ${{ env.OWNER }}
+          REPO: ${{ env.REPO }}
+        run: |
+          # Get all tags and their updated date, except the latest tag
+          TAGS_AND_DATE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/$OWNER/packages/container/$REPO/versions?per_page=1000" \
+            | jq -r '.[] | select(.metadata.container.tags[] | startswith("v") and contains("-alpha.")) | .name + " " + .metadata.container.tags[] + " " + .updated_at ' \
+            | sort -k3 -t' ' \
+            | sed '$d' \
+            | awk '{if ($1!="latest") print $2,$3}')
+
+          # current timestampt
+          current_date=$(date +%s)
+
+          # init tag variable
+          TAGS=""
+
+          while IFS=' ' read -r tag date; do
+            # 将日期转换为Unix时间戳
+            tag_date=$(date -d "$date" +%s)
+            # 计算日期差异
+            date_diff=$(( (current_date - tag_date) / 86400 ))
+            # 如果日期差异大于14天，将标签追加到TAG变量
+            if [ "$date_diff" -gt 14 ]; then
+              TAGS+="$tag "
+            fi
+          done <<< "$TAGS_AND_DATE"
+
+          for TAG in $TAGS; do
+            # Get the package version ID for a specific tag
+            VERSION_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/$OWNER/packages/container/$REPO/versions?per_page=1000" \
+              | jq -r --arg TAG "$TAG" '.[] | select(.metadata.container.tags[] == $TAG) | .id')
+            
+            if [[ ! -z "$VERSION_ID" ]]; then
+              # Delete the image with the specific version ID
+              curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+                "https://api.github.com/$OWNER/packages/container/$REPO/versions/$VERSION_ID"
+              echo "Deleted image $REPO:$TAG"
+            fi
+          done
+
+      - name: Delete Old Beta Images
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          OWNER: ${{ env.OWNER }}
+          REPO: ${{ env.REPO }}
+        run: |
+          # Get all tags and their updated date, except the latest tag
+          TAGS_AND_DATE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/$OWNER/packages/container/$REPO/versions?per_page=1000" \
+            | jq -r '.[] | select(.metadata.container.tags[] | startswith("v") and contains("-beta.")) | .name + " " + .metadata.container.tags[] + " " + .updated_at ' \
+            | sort -k3 -t' ' \
+            | sed '$d' \
+            | awk '{if ($1!="latest") print $2,$3}')
+
+          # current timestampt
+          current_date=$(date +%s)
+
+          # init tag variable
+          TAGS=""
+
+          while IFS=' ' read -r tag date; do
+            # 将日期转换为Unix时间戳
+            tag_date=$(date -d "$date" +%s)
+            # 计算日期差异
+            date_diff=$(( (current_date - tag_date) / 86400 ))
+            # 如果日期差异大于14天，将标签追加到TAG变量
+            if [ "$date_diff" -gt 14 ]; then
+              TAGS+="$tag "
+            fi
+          done <<< "$TAGS_AND_DATE"
+
+          for TAG in $TAGS; do
+            # Get the package version ID for a specific tag
+            VERSION_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/$OWNER/packages/container/$REPO/versions?per_page=1000" \
+              | jq -r --arg TAG "$TAG" '.[] | select(.metadata.container.tags[] == $TAG) | .id')
+            
+            if [[ ! -z "$VERSION_ID" ]]; then
+              # Delete the image with the specific version ID
+              curl -s -X DELETE -H "Authorization: Bearer $GITHUB_TOKEN" \
+                "https://api.github.com/$OWNER/packages/container/$REPO/versions/$VERSION_ID"
+              echo "Deleted image $REPO:$TAG"
+            fi
+          done
