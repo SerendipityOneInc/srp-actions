@@ -84,9 +84,9 @@ jobs:
           FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
           MSGTYPE: interactive
           CONTENT: |
-          ** 🚀 helm chart ${{ inputs.chart_name }} released success! **
-                  - Chart Name: ${{ inputs.chart_name }}
-                  - Chart Version: ${{ steps.get_version.outputs.VERSION }}
-                  - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
-                  - Trigger By: ${{ github.event_name	}}
-                  - Github Ref: ${{ github.ref }}
+            ** 🚀 helm chart ${{ inputs.chart_name }} released success! **
+            - Chart Name: ${{ inputs.chart_name }}
+            - Chart Version: ${{ steps.get_version.outputs.VERSION }}
+            - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+            - Trigger By: ${{ github.event_name	}}
+            - Github Ref: ${{ github.ref }}
