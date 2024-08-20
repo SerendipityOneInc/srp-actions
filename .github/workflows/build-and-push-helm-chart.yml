@@ -31,7 +31,7 @@ jobs:
 
       - name: get owner name
         id: owner
-        run: echo "OWNER=$(echo ${{ github.event.repository.owner }} )" >> $GITHUB_OUTPUT
+        run: echo "OWNER=$(echo ${{ github.event.repository.owner.login }} )" >> $GITHUB_OUTPUT
 
       - name: Install Helm
         uses: azure/setup-helm@v3
