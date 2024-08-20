@@ -14,7 +14,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  CHART_PATH: ./${{ inputs.chart_name }}
 
 jobs:
   helm-chart-release:
@@ -40,7 +39,7 @@ jobs:
           version: v3.8.1
 
       - name: Update Chart version
-        working-directory: ${{ env.CHART_PATH }}
+        working-directory: ${{ inputs.chart_name }}
         run: |
           sed -i 's/version:.*/version: ${{ steps.get_version.outputs.VERSION }}/' Chart.yaml
           sed -i 's/appVersion:.*/appVersion: ${{ steps.get_version.outputs.VERSION }}/' Chart.yaml
@@ -53,16 +52,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Package Helm Chart
-        working-directory: ${{ env.CHART_PATH }}
+        working-directory: ${{ inputs.chart_name }}
         run: helm package .
 
       - name: Push Helm Chart to GitHub Packages
-        working-directory: ${{ env.CHART_PATH }}
+        working-directory: ${{ inputs.chart_name }}
         run: |
           helm push ${{ inputs.chart_name }}-${{ steps.get_version.outputs.VERSION }}.tgz oci://${{ env.REGISTRY }}/${{ steps.owner.outputs.OWNER }}
 
       - name: Generate Helm Repository Index
-        working-directory: ${{ env.CHART_PATH }}
+        working-directory: ${{ inputs.chart_name }}
         run: |
           helm repo index . --url oci://${{ env.REGISTRY }}/${{ steps.owner.outputs.OWNER }}/${{ inputs.chart_name }}
 
@@ -70,7 +69,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: helm-repo-index
-          path: ${{ env.CHART_PATH }}/index.yaml
+          path: ${{ inputs.chart_name }}/index.yaml
 
       - id: deploy-success-notification
         name: Deploy success notification
