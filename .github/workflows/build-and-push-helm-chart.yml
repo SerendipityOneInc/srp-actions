@@ -23,7 +23,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Extract version from tag
         id: get_version
@@ -34,9 +34,7 @@ jobs:
         run: echo "OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Install Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: v3.8.1
+        uses: azure/setup-helm@v4.2.0
 
       - name: Update Chart version
         working-directory: ${{ inputs.chart_name }}
@@ -45,7 +43,7 @@ jobs:
           sed -i 's/appVersion:.*/appVersion: ${{ steps.get_version.outputs.VERSION }}/' Chart.yaml
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3.0.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -66,7 +64,7 @@ jobs:
           helm repo index . --url oci://${{ env.REGISTRY }}/${{ steps.owner.outputs.OWNER }}/${{ inputs.chart_name }}
 
       - name: Upload Helm Repository Index
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: helm-repo-index
           path: ${{ inputs.chart_name }}/index.yaml
