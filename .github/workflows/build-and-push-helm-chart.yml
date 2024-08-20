@@ -85,6 +85,7 @@ jobs:
             ** 🚀 helm chart ${{ inputs.chart_name }} released success! **
             - Chart Name: ${{ inputs.chart_name }}
             - Chart Version: ${{ steps.get_version.outputs.VERSION }}
+            - Chart Repo: oci://${{ env.REGISTRY }}/${{ steps.owner.outputs.OWNER }}/${{ inputs.chart_name }}:${{ steps.get_version.outputs.VERSION }}
             - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
             - Trigger By: ${{ github.event_name	}}
             - Github Ref: ${{ github.ref }}
