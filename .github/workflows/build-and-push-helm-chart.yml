@@ -1,0 +1,114 @@
+name: Helm Chart Release
+
+on:
+  workflow_call:
+    inputs:
+      chart_name:
+        required: true
+        type: string
+    secrets:
+      FEISHU_CUSTOMERBOT_WEBHOOK:
+        required: true
+      FEISHU_CUSTOMERBOT_SECRET:
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  CHART_PATH: ./${{ inputs.chart_name }}
+
+jobs:
+  helm-chart-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Extract version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: get owner name
+        id: owner
+        run: echo "OWNER=$(echo ${{ github.event.repository.owner }} )" >> $GITHUB_OUTPUT
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.8.1
+
+      - name: Update Chart version
+        working-directory: ${{ env.CHART_PATH }}
+        run: |
+          sed -i 's/version:.*/version: ${{ steps.get_version.outputs.VERSION }}/' Chart.yaml
+          sed -i 's/appVersion:.*/appVersion: ${{ steps.get_version.outputs.VERSION }}/' Chart.yaml
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package Helm Chart
+        working-directory: ${{ env.CHART_PATH }}
+        run: helm package .
+
+      - name: Push Helm Chart to GitHub Packages
+        working-directory: ${{ env.CHART_PATH }}
+        run: |
+          helm push ${{ inputs.chart_name }}-${{ steps.get_version.outputs.VERSION }}.tgz oci://${{ env.REGISTRY }}/${{ steps.owner.outputs.OWNER }}
+
+      - name: Generate Helm Repository Index
+        working-directory: ${{ env.CHART_PATH }}
+        run: |
+          helm repo index . --url oci://${{ env.REGISTRY }}/${{ steps.owner.outputs.OWNER }}/${{ inputs.chart_name }}
+
+      - name: Upload Helm Repository Index
+        uses: actions/upload-artifact@v3
+        with:
+          name: helm-repo-index
+          path: ${{ env.CHART_PATH }}/index.yaml
+
+      - id: deploy-success-notification
+        name: Deploy success notification
+        uses: SerendipityOneInc/feishu-actions@main
+        with:
+            # The custom action has bugs, the with here is useless, just to supress vscode error
+            FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+            FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        env:
+            # Following are used for feishu message
+            FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+            FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+            MSGTYPE: interactive
+            CONTENT: |
+              ** 🚀 helm chart ${{ inputs.chart_name }} released success! **
+              - Chart Name: ${{ inputs.chart_name }}
+              - Chart Version: ${{ steps.get_version.outputs.VERSION }}
+              - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+              - Trigger By: ${{ github.event_name	}}
+              - Github Ref: ${{ github.ref }}
+
+        - id: deploy-failure-notification
+          name: Deploy failure notification
+          uses: SerendipityOneInc/feishu-actions@main
+          if: failure()
+          with:
+            # The custom action has bugs, the with here is useless, just to supress vscode error
+            FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+            FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          env:
+            # Following are used for feishu message
+            FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+            FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+            MSGTYPE: interactive
+            CONTENT: |
+              ** ❌ helm chart ${{ inputs.chart_name }} released failed! **
+              - Chart Name: ${{ inputs.chart_name }}
+              - Chart Version: ${{ steps.get_version.outputs.VERSION }}
+              - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+              - Trigger By: ${{ github.event_name	}}
+              - Github Ref: ${{ github.ref }}
