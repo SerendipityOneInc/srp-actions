@@ -122,7 +122,11 @@ runs:
           echo "using kustomize edit to set image"
           kustomize edit set image ${{ inputs.image_to_deploy }}=${{ inputs.image_tag_to_deploy }}
         fi
+        kubectl rollout pause deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
         kubectl apply -k . -n ${{ inputs.gke_namespace }}
+        env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.gke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
+        kubectl patch deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\"}}}}}"
+        kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
         kubectl rollout status deployment/${{ inputs.deployment_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.gke_namespace }}
         kubectl get services -o wide -n ${{ inputs.gke_namespace }}
 
