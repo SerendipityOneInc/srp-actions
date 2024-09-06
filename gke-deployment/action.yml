@@ -137,7 +137,7 @@ runs:
           # Resume rollout
           kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
         else
-          echo "Deployment ${ { inputs.deployment_name }} does not exist in namespace ${ { inputs.gke_namespace }}. This is the first time deploying."
+          echo "Deployment ${{ inputs.deployment_name }} does not exist in namespace ${{ inputs.gke_namespace }}. This is the first time deploying."
           kubectl apply -k . -n ${{ inputs.gke_namespace }}
         fi
 
