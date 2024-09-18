@@ -112,7 +112,7 @@ jobs:
             file: ${{ inputs.dockerfile }}
             build-args: |
               ${{ inputs.build_args }}
-              GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+              GITHUB_TOKEN=${{ secrets.GH_TOKEN }}
             push: ${{ github.event_name != 'pull_request' }}
             tags: ${{ steps.meta.outputs.tags }}
             labels: ${{ steps.meta.outputs.labels }}
