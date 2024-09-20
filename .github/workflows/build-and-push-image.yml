@@ -32,6 +32,8 @@ on:
             required: true
         FEISHU_CUSTOMERBOT_SECRET:
             required: true
+        GH_RELEASE_TOKEN:
+            required: true
     outputs:
       image_tag:
         description: 'The image tag'
@@ -117,7 +119,7 @@ jobs:
             cache-to: type=gha,mode=max
             build-args: |
               ${{ inputs.build_args }}
-              GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+              GITHUB_TOKEN=${{ secrets.GH_RELEASE_TOKEN }}
           
         # Sign the resulting Docker image digest except on PRs.
         # This will only write to the public Rekor transparency log when the Docker
