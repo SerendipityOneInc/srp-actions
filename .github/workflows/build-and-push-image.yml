@@ -31,7 +31,7 @@ on:
         FEISHU_CUSTOMERBOT_WEBHOOK:
             required: true
         FEISHU_CUSTOMERBOT_SECRET:
-            required: true    
+            required: true
     outputs:
       image_tag:
         description: 'The image tag'
@@ -110,12 +110,14 @@ jobs:
           with:
             context: ${{ inputs.context }}
             file: ${{ inputs.dockerfile }}
-            build-args: ${{ inputs.build_args }}
             push: ${{ github.event_name != 'pull_request' }}
             tags: ${{ steps.meta.outputs.tags }}
             labels: ${{ steps.meta.outputs.labels }}
             cache-from: type=gha
             cache-to: type=gha,mode=max
+            build-args: |
+              ${{ inputs.build_args }}
+              GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           
         # Sign the resulting Docker image digest except on PRs.
         # This will only write to the public Rekor transparency log when the Docker
