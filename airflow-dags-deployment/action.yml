@@ -1,5 +1,5 @@
 name: gke-deployment
-description: "Deploy Airflow Dags to GKE"
+description: "Deploy Airflow Dags to GCS"
 
 inputs:
   gcp_project_id:
@@ -19,6 +19,9 @@ inputs:
     default: "dev"
     description: "Environment"
     required: false
+  dag_id:
+    type: string
+    required: true
   FEISHU_CUSTOMERBOT_WEBHOOK:
     description: "Feishu customer bot webhook"
     type: string
@@ -65,12 +68,14 @@ runs:
       shell: bash
       run: |
         TAG_NAME=${{ inputs.version }}
-        find dags -maxdepth 1 -name "*.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
+        find dags/{{ inputs.dag_id }}.py -maxdepth 1 -name "*.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
 
     - id: 'upload-dags-to-gcs'
       name: Upload DAGs to GCS Airflow DAGS Folder
       shell: bash
-      run: gsutil -m rsync -d -r dags gs://srp_airflow-${{ inputs.environment }}/dags/
+      run: |
+        gsutil -m rsync -d -r dags/{{ inputs.dag_id }} gs://srp_airflow-${{ inputs.environment }}/dags/{{ inputs.dag_id }}
+        gsutil -m rsync -d -r dags/{{ inputs.dag_id }}.py gs://srp_airflow-${{ inputs.environment }}/dags/{{ inputs.dag_id }}.py
 
     - id: deploy-success-notification
       name: Deploy success notification
@@ -87,6 +92,7 @@ runs:
         CONTENT: |
           ** 🚀 Airflow DAGS deployed success! **
           - Repository: ${{ inputs.repo_name }}
+          - DAG ID: ${{ inputs.dag_id }}
           - Version: ${{ inputs.version }}
           - GCP Project: ${{ inputs.gcp_project_id }}
           - Environment: ${{ inputs.environment }}
@@ -109,6 +115,7 @@ runs:
         CONTENT: |
           ** ❌ Airflow DAGS deployed failed! **
           - Repository: ${{ inputs.repo_name }}
+          - DAG ID: ${{ inputs.dag_id }}
           - Version: ${{ inputs.version }}
           - GCP Project: ${{ inputs.gcp_project_id }}
           - Environment: ${{ inputs.environment }}
