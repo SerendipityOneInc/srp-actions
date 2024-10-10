@@ -68,7 +68,8 @@ runs:
       shell: bash
       run: |
         TAG_NAME=${{ inputs.version }}
-        find dags/{{ inputs.dag_id }}.py -maxdepth 1 -name "*.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
+        DAG_ID=${{ inputs.dag_id }}
+        find dags/ -maxdepth 1 -name "${DAG_ID}.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
 
     - id: 'upload-dags-to-gcs'
       name: Upload DAGs to GCS Airflow DAGS Folder
