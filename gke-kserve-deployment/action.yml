@@ -1,0 +1,195 @@
+name: gke-kserve-deployment
+description: "Deploy model to GKE Kerve"
+
+inputs:
+  gcp_project_id:
+    type: string
+    required: true
+  gke_location:
+    type: string
+    required: true
+  gke_cluster:
+    type: string
+    required: true
+  gke_namespace:
+    description: "namespace of the serivce/pod to deploy"
+    type: string
+    required: true
+    default: "default"
+  deployment_name:
+    type: string
+    required: true
+  should_export_env:
+    description: "whether to export env file"
+    type: boolean
+    required: false
+    default: true
+  image_to_deploy:
+    description: "image name to deploy"
+    type: string
+    required: false
+  image_tag_to_deploy:
+    description: "image tag to deploy"
+    type: string
+    required: false
+  repo_name:
+    type: string
+    required: false
+  env_file:
+    type: string
+    required: false
+  gke_sa_key:
+    description: "GKE service account key"
+    required: true
+  rollout_timeout:
+    type: string
+    description: "kubectl rollout timeout"
+    require: false
+    default: "10m"
+  environment:
+    type: string
+    default: "dev"
+    description: "Environment"
+    required: false
+  FEISHU_CUSTOMERBOT_WEBHOOK:
+    description: "Feishu customer bot webhook"
+    type: string
+    required: true
+  FEISHU_CUSTOMERBOT_SECRET:
+    description: "Feishu customer bot secret"
+    type: string
+    required: true  
+
+runs: 
+  using: 'composite'
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref }}
+        
+    - id: 'gcp-auth'
+      name: Auth Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        project_id: ${{ inputs.gcp_project_id }}
+        credentials_json: ${{ inputs.gke_sa_key }}
+    
+    - id: 'gke-get-credentials'
+      name: Get GKE credentials
+      uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ inputs.gke_cluster }}
+        location: ${{ inputs.gke_location }}
+
+    - id: 'export-env'
+      name: "Export env file"
+      shell: bash
+      run: |
+        if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+          cat ${{ inputs.env_file }} | base64 > ${{ inputs.repo_name }}.base64
+          env_content=$(cat ${{ inputs.repo_name }}.base64 | tr -d '\n')
+          echo "env_content=${env_content}" >> $GITHUB_OUTPUT
+        fi
+
+    - id: 'update-k8s-secret'
+      name: "Update k8s secret"
+      if: ${{ inputs.should_export_env && steps.export-env.outputs.env_content != ''}}
+      uses: azure/k8s-create-secret@v4
+      with:
+        namespace: ${{ inputs.gke_namespace }}
+        secret-type: generic
+        secret-name: ${{ inputs.repo_name }}-secret
+        data: '{"${{ inputs.repo_name }}.env": "${{ steps.export-env.outputs.env_content }}"}'
+    
+    - id: 'update-k8s-env-secret'
+      name: "Update k8s env secret"
+      shell: bash
+      run: |
+        if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+          kubectl create secret generic ${{ inputs.repo_name }}-env-secret \
+            --from-env-file=${{ inputs.env_file }} \
+            --namespace=${{ inputs.gke_namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+        fi
+
+    - id: 'kustomize-deploy'
+      name: "Deploy to k8s"
+      shell: bash
+      run:  |
+        cd kustomize/overlays/${{ inputs.environment }}
+        if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+          echo "using kustomize edit to set image"
+          kustomize edit set image ${{ inputs.image_to_deploy }}=${{ inputs.image_tag_to_deploy }}
+        fi
+
+        kubectl apply -k . -n ${{ inputs.gke_namespace }}
+
+        # # Check if the deployment exists
+        # if kubectl get deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} > /dev/null 2>&1; then
+
+        #   # Pause the deployment before applying the kustomize
+        #   kubectl rollout pause deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+
+        #   # apply kustomize and patch the deployment with the env secret version
+        #   kubectl apply -k . -n ${{ inputs.gke_namespace }}
+        #   env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.gke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
+        #   release_time="$(date -Iseconds)"
+        #   kubectl patch deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
+
+        #   # Resume rollout
+        #   kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+        # else
+        #   echo "Deployment ${{ inputs.deployment_name }} does not exist in namespace ${{ inputs.gke_namespace }}. This is the first time deploying."
+        #   kubectl apply -k . -n ${{ inputs.gke_namespace }}
+        # fi
+
+        # kubectl rollout status deployment/${{ inputs.deployment_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.gke_namespace }}
+        # kubectl get services -o wide -n ${{ inputs.gke_namespace }}
+
+    - id: deploy-success-notification
+      name: Deploy success notification
+      uses: SerendipityOneInc/feishu-actions@main
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** 🚀 ${{ inputs.deployment_name }} deployed success! **
+          - Image Version: ${{ inputs.image_tag_to_deploy }}
+          - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+          - GCP Project: ${{ inputs.gcp_project_id }}
+          - GKE Cluster: ${{ inputs.gke_cluster }}
+          - GKE Location: ${{ inputs.gke_location }}
+          - GKE Namespace: ${{ inputs.gke_namespace }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}
+
+    - id: deploy-failure-notification
+      name: Deploy failure notification
+      uses: SerendipityOneInc/feishu-actions@main
+      if: failure()
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** ❌ ${{ inputs.deployment_name }} deployed failed! **
+          - Image Version: ${{ inputs.image_tag_to_deploy }}
+          - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+          - GCP Project: ${{ inputs.gcp_project_id }}
+          - GKE Cluster: ${{ inputs.gke_cluster }}
+          - GKE Location: ${{ inputs.gke_location }}
+          - GKE Namespace: ${{ inputs.gke_namespace }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}
