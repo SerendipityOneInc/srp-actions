@@ -123,7 +123,7 @@ runs:
           kustomize edit set image ${{ inputs.image_to_deploy }}=${{ inputs.image_tag_to_deploy }}
         fi
 
-        kubectl apply -k . -n ${{ inputs.gke_namespace }}
+        kubectl apply -k .
 
         # # Check if the deployment exists
         # if kubectl get deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} > /dev/null 2>&1; then
