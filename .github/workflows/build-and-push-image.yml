@@ -63,6 +63,11 @@ jobs:
       steps:
         - name: Checkout repository
           uses: actions/checkout@v4
+        
+        - name: Install Git LFS
+          run: |
+            git lfs install
+            git lfs pull
   
         # Install the cosign tool except on PR
         # https://github.com/sigstore/cosign-installer
