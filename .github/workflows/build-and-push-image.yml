@@ -48,7 +48,8 @@ env:
     # github.repository as <account>/<repo>
 jobs:
     build-and-push-app-image:
-      runs-on: ${{ inputs.runner_name }}
+      # runs-on: ${{ inputs.runner_name }}
+      runs-on: ubuntu-latest
       permissions:
         contents: read
         packages: write
