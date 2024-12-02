@@ -6,7 +6,7 @@ on:
       runner_name:
         description: 'The name of the runner to run the workflow on'
         type: string
-        default: ubuntu-latest
+        default: ubuntu-latest-m
         required: false
       image_name:
         description: 'The name of the image to build'
@@ -48,8 +48,8 @@ env:
     # github.repository as <account>/<repo>
 jobs:
     build-and-push-app-image:
-      # runs-on: ${{ inputs.runner_name }}
-      runs-on: ubuntu-latest
+      runs-on: ${{ inputs.runner_name }}
+      # runs-on: ubuntu-latest
       permissions:
         contents: read
         packages: write
