@@ -49,7 +49,7 @@ env:
 jobs:
     build-and-push-app-image:
       # runs-on: ${{ inputs.runner_name }}
-      runs-on: ubuntu-latest
+      runs-on: self-hosted-ubuntu-gpu-l
       permissions:
         contents: read
         packages: write
