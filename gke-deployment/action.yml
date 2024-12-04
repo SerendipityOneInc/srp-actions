@@ -130,7 +130,11 @@ runs:
           kubectl rollout pause deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
 
           # apply kustomize and patch the deployment with the env secret version
-          kubectl apply -k . -n ${{ inputs.gke_namespace }}
+          kubectl apply -k . -n ${{ inputs.gke_namespace }} || {
+            echo "Failed to apply kustomize"
+            kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+            exit 1
+          }
           env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.gke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
           release_time="$(date -Iseconds)"
           kubectl patch deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
