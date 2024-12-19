@@ -110,7 +110,7 @@ jobs:
             - Version: ${{ steps.get_version.outputs.version }}
 
             Usage:
-            pip install -U ${{ github.event.repository.name }}==${{ steps.get_version.outputs.version }} --index-url https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/simple/
+            pip install ${{ github.event.repository.name }}==${{ steps.get_version.outputs.version }} --index-url https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/simple/ --extra-index-url https://pypi.org/simple
 
       - id: publish-failure-notification
         name: Publish failure notification
