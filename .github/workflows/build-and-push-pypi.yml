@@ -26,6 +26,10 @@ on:
       PYPI_DEPLOYMENT_SA_KEY:
         description: "GCP Pypi deployment Service Account key JSON"
         required: true
+      FEISHU_CUSTOMERBOT_WEBHOOK:
+        required: true
+      FEISHU_CUSTOMERBOT_SECRET:
+        required: true
 
 jobs:
   build-and-publish-pypi:
@@ -86,3 +90,44 @@ jobs:
           TWINE_REPOSITORY_URL: https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/
         run: |
           twine upload --verbose dist/*
+
+      - id: publish-success-notification
+        name: Publish success notification
+        uses: SerendipityOneInc/feishu-actions@main
+        with:
+          # The custom action has bugs, the with here is useless, just to supress vscode error
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        env:
+          # Following are used for feishu message
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          MSGTYPE: interactive
+          CONTENT: |
+            ** 🚀 [${{ github.event.repository.name }}](${{ github.event.repository.url }}) poetry build and publish to pypi success! **
+            - Trigger By: ${{ github.event_name	}}
+            - Github Ref: ${{ github.ref }}
+            - Version: ${{ steps.get_version.outputs.version }}
+
+            Usage:
+            ```
+            pip install -U ${{ github.event.repository.name }}==${{ steps.get_version.outputs.version }} --index-url https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/simple/
+            ```
+
+      - id: publish-failure-notification
+        name: Publish failure notification
+        uses: SerendipityOneInc/feishu-actions@main
+        if: failure()
+        with:
+          # The custom action has bugs, the with here is useless, just to supress vscode error
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        env:
+          # Following are used for feishu message
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          MSGTYPE: interactive
+          CONTENT: |
+            ** ❌ [${{ github.event.repository.name }}](${{ github.event.repository.url }}) poetry build and publish to pypi failed! **
+            - Trigger By: ${{ github.event_name	}}
+            - Github Ref: ${{ github.ref }}
