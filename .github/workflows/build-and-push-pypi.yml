@@ -108,8 +108,9 @@ jobs:
             - Trigger By: ${{ github.event_name	}}
             - Github Ref: ${{ github.ref }}
             - Version: ${{ steps.get_version.outputs.version }}
+
             Usage:
-            <u>pip install -U ${{ github.event.repository.name }}==${{ steps.get_version.outputs.version }} --index-url https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/simple/ </u>
+            pip install -U ${{ github.event.repository.name }}==${{ steps.get_version.outputs.version }} --index-url https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/simple/
 
       - id: publish-failure-notification
         name: Publish failure notification
