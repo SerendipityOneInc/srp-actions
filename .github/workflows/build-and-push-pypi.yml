@@ -1,0 +1,88 @@
+name: Poetry Build and Publish to GCP Artifacts
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version to use"
+        required: false
+        default: "3.10"
+        type: string
+      project-id:
+        description: "GCP project ID"
+        required: false
+        default: "srp-common"
+        type: string
+      artifact-repo:
+        description: "Artifact Registry repository name"
+        required: false
+        default: "pypi"
+        type: string
+      region:
+        description: "GCP region"
+        required: false
+        default: "us"
+        type: string
+    secrets:
+      PYPI_DEPLOYMENT_SA_KEY:
+        description: "GCP Pypi deployment Service Account key JSON"
+        required: true
+
+jobs:
+  build-and-publish-pypi:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          poetry config virtualenvs.create false
+
+      - name: Update version in pyproject.toml
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          poetry version $VERSION
+
+      - name: Build package
+        run: poetry build
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v1
+        with:
+          project_id: ${{ inputs.project-id }}
+          credentials_json: ${{ secrets.PYPI_DEPLOYMENT_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Install twine
+        run: pip install twine
+
+      - name: Get GCP Token
+        id: get-token
+        run: |
+          echo "access_token=$(gcloud auth print-access-token)" >> $GITHUB_OUTPUT
+
+      - name: Upload to GCP Artifacts
+        env:
+          TWINE_USERNAME: oauth2accesstoken
+          TWINE_PASSWORD: ${{ steps.get-token.outputs.access_token }}
+          TWINE_REPOSITORY_URL: https://${{ inputs.region }}-python.pkg.dev/${{ inputs.project-id }}/${{ inputs.artifact-repo }}/
+        run: |
+          twine upload --verbose dist/*
