@@ -96,12 +96,12 @@ jobs:
         uses: SerendipityOneInc/feishu-actions@main
         with:
           # The custom action has bugs, the with here is useless, just to supress vscode error
-          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
-          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
         env:
           # Following are used for feishu message
-          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
-          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
           MSGTYPE: interactive
           CONTENT: |
             ** 🚀 [${{ github.event.repository.name }}](${{ github.event.repository.url }}) poetry build and publish to pypi success! **
@@ -117,14 +117,15 @@ jobs:
         if: failure()
         with:
           # The custom action has bugs, the with here is useless, just to supress vscode error
-          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
-          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
         env:
           # Following are used for feishu message
-          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
-          FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+          FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+          FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
           MSGTYPE: interactive
           CONTENT: |
             ** ❌ [${{ github.event.repository.name }}](${{ github.event.repository.url }}) poetry build and publish to pypi failed! **
             - Trigger By: ${{ github.event_name	}}
             - Github Ref: ${{ github.ref }}
+            - Version: ${{ steps.get_version.outputs.version }}
