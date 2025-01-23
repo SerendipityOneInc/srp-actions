@@ -48,8 +48,8 @@ env:
     # github.repository as <account>/<repo>
 jobs:
     build-and-push-app-image:
-      runs-on: ${{ inputs.runner_name }}
-      # runs-on: self-hosted-ubuntu-gpu-l
+      # runs-on: ${{ inputs.runner_name }}
+      runs-on: self-hosted-ubuntu-gpu-l
       permissions:
         contents: read
         packages: write
