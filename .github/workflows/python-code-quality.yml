@@ -53,7 +53,7 @@ jobs:
                 pytest tests
             - name: Upload logs as an artifact
               if: failure() && steps.run-unit-tests.outcome == 'failure'
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                 name: uvicorn-logs
                 path: uvicorn.log
