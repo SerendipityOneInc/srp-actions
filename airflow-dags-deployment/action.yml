@@ -75,7 +75,9 @@ runs:
       name: Upload DAGs to GCS Airflow DAGS Folder
       shell: bash
       run: |
-        gsutil -m rsync -d -r dags/${{ inputs.dag_id }} gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}
+        if [ -d "dags/${{ inputs.dag_id }}" ]; then
+          gsutil -m rsync -d -r dags/${{ inputs.dag_id }} gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}
+        fi
         gsutil -m cp dags/${{ inputs.dag_id }}.py gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}.py
 
     - id: deploy-success-notification
