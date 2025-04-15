@@ -1,5 +1,5 @@
-name: gke-deployment
-description: "Deploy Deployment to GKE"
+name: gke-statefulset
+description: "Deploy StatefulSet to GKE"
 
 inputs:
   gcp_project_id:
@@ -16,7 +16,7 @@ inputs:
     type: string
     required: true
     default: "default"
-  deployment_name:
+  statefulset_name:
     type: string
     required: true
   should_export_env:
@@ -123,30 +123,27 @@ runs:
           kustomize edit set image ${{ inputs.image_to_deploy }}=${{ inputs.image_tag_to_deploy }}
         fi
 
-        # Check if the deployment exists
-        if kubectl get deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} > /dev/null 2>&1; then
-
-          # Pause the deployment before applying the kustomize
-          kubectl rollout pause deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
-
-          # apply kustomize and patch the deployment with the env secret version
+        # Check if the StatefulSet exists
+        if kubectl get statefulset/${{ inputs.statefulset_name }} -n ${{ inputs.gke_namespace }} > /dev/null 2>&1; then
+          echo "StatefulSet ${{ inputs.statefulset_name }} exists. Updating..."
+          
+          # Apply kustomize and patch the StatefulSet with the env secret version
           kubectl apply -k . -n ${{ inputs.gke_namespace }} || {
             echo "Failed to apply kustomize"
-            kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
             exit 1
           }
+          
           env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.gke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
           release_time="$(date -Iseconds)"
-          kubectl patch deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
-
-          # Resume rollout
-          kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+          kubectl patch statefulset/${{ inputs.statefulset_name }} -n ${{ inputs.gke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
+          
         else
-          echo "Deployment ${{ inputs.deployment_name }} does not exist in namespace ${{ inputs.gke_namespace }}. This is the first time deploying."
+          echo "StatefulSet ${{ inputs.statefulset_name }} does not exist in namespace ${{ inputs.gke_namespace }}. This is the first time deploying."
           kubectl apply -k . -n ${{ inputs.gke_namespace }}
         fi
 
-        kubectl rollout status deployment/${{ inputs.deployment_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.gke_namespace }}
+        # Using StatefulSet rollout status instead of deployment
+        kubectl rollout status statefulset/${{ inputs.statefulset_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.gke_namespace }}
         kubectl get services -o wide -n ${{ inputs.gke_namespace }}
 
     - id: deploy-success-notification
@@ -162,7 +159,7 @@ runs:
         FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
         MSGTYPE: interactive
         CONTENT: |
-          ** 🚀 ${{ inputs.deployment_name }} deployed success! **
+          ** 🚀 ${{ inputs.statefulset_name }} StatefulSet deployed success! **
           - Image Version: ${{ inputs.image_tag_to_deploy }}
           - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
           - GCP Project: ${{ inputs.gcp_project_id }}
@@ -186,7 +183,7 @@ runs:
         FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
         MSGTYPE: interactive
         CONTENT: |
-          ** ❌ ${{ inputs.deployment_name }} deployed failed! **
+          ** ❌ ${{ inputs.statefulset_name }} StatefulSet deployed failed! **
           - Image Version: ${{ inputs.image_tag_to_deploy }}
           - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
           - GCP Project: ${{ inputs.gcp_project_id }}
