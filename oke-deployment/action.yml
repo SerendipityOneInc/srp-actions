@@ -131,16 +131,6 @@ runs:
           echo "env_content=${env_content}" >> $GITHUB_OUTPUT
         fi
 
-    - id: "update-k8s-secret"
-      name: "Update k8s secret"
-      if: ${{ inputs.should_export_env && steps.export-env.outputs.env_content != ''}}
-      uses: azure/k8s-create-secret@v4
-      with:
-        namespace: ${{ inputs.oke_namespace }}
-        secret-type: generic
-        secret-name: ${{ inputs.repo_name }}-secret
-        data: '{"${{ inputs.repo_name }}.env": "${{ steps.export-env.outputs.env_content }}"}'
-
     - id: "update-k8s-env-secret"
       name: "Update k8s env secret"
       shell: bash
