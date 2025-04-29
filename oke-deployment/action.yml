@@ -84,6 +84,7 @@ runs:
     - name: Run Kubectl
       shell: bash
       run: |
+        kubectl config view
         kubectl cluster-info
         kubectl get nodes -A
         kubectl get deployment -n ${{ inputs.oke_namespace }}
