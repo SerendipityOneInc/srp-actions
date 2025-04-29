@@ -1,17 +1,26 @@
-name: gke-deployment
-description: "Deploy Deployment to GKE"
+name: oke-deployment
+description: "Deploy Deployment to OKE"
 
 inputs:
-  gcp_project_id:
+  oci_cli_user:
     type: string
     required: true
-  gke_location:
+  oci_cli_tenancy:
     type: string
     required: true
-  gke_cluster:
+  oci_cli_fingerprint:
     type: string
     required: true
-  gke_namespace:
+  oci_cli_key_content:
+    type: string
+    required: true
+  oci_cli_region:
+    type: string
+    required: true
+  oke_cluster_ocid:
+    type: string
+    required: true
+  oke_namespace:
     description: "namespace of the serivce/pod to deploy"
     type: string
     required: true
@@ -38,9 +47,6 @@ inputs:
   env_file:
     type: string
     required: false
-  gke_sa_key:
-    description: "GKE service account key"
-    required: true
   rollout_timeout:
     type: string
     description: "kubectl rollout timeout"
@@ -63,24 +69,28 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Configure Kubectl
+      uses: oracle-actions/configure-kubectl-oke@v1.5.0
+      id: configure-kubectl-oke-action
+      with:
+        cluster: ${{ inputs.oke_cluster_ocid }}
+      env:
+        OCI_CLI_USER: ${{ inputs.oci_cli_user }}
+        OCI_CLI_TENANCY: ${{ inputs.oci_cli_tenancy }}
+        OCI_CLI_FINGERPRINT: ${{ inputs.oci_cli_fingerprint }}
+        OCI_CLI_KEY_CONTENT: ${{ inputs.oci_cli_key_content }}
+        OCI_CLI_REGION: ${{ inputs.oci_cli_region }}
+
+    - name: Run Kubectl
+      shell: bash
+      run: |
+        kubectl get nodes -A
+        kubectl get deployment -n ${{ inputs.oke_namespace }}
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref }}
-
-    - id: "gcp-auth"
-      name: Auth Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        project_id: ${{ inputs.gcp_project_id }}
-        credentials_json: ${{ inputs.gke_sa_key }}
-
-    - id: "gke-get-credentials"
-      name: Get GKE credentials
-      uses: google-github-actions/get-gke-credentials@v2
-      with:
-        cluster_name: ${{ inputs.gke_cluster }}
-        location: ${{ inputs.gke_location }}
 
     - id: "export-env"
       name: "Export env file"
@@ -97,7 +107,7 @@ runs:
       if: ${{ inputs.should_export_env && steps.export-env.outputs.env_content != ''}}
       uses: azure/k8s-create-secret@v4
       with:
-        namespace: ${{ inputs.gke_namespace }}
+        namespace: ${{ inputs.oke_namespace }}
         secret-type: generic
         secret-name: ${{ inputs.repo_name }}-secret
         data: '{"${{ inputs.repo_name }}.env": "${{ steps.export-env.outputs.env_content }}"}'
@@ -109,12 +119,12 @@ runs:
         if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
           kubectl create secret generic ${{ inputs.repo_name }}-env-secret \
             --from-env-file=${{ inputs.env_file }} \
-            --namespace=${{ inputs.gke_namespace }} \
+            --namespace=${{ inputs.oke_namespace }} \
             --dry-run=client -o yaml | kubectl apply -f -
         fi
 
     - id: "kustomize-deploy"
-      name: "Deploy to k8s"
+      name: "Deploy to OKE k8s"
       shell: bash
       run: |
         cd kustomize/overlays/${{ inputs.environment }}
@@ -124,30 +134,30 @@ runs:
         fi
 
         # Check if the deployment exists
-        if kubectl get deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} > /dev/null 2>&1; then
+        if kubectl get deployment/${{ inputs.deployment_name }} -n ${{ inputs.oke_namespace }} > /dev/null 2>&1; then
 
           # Pause the deployment before applying the kustomize
-          kubectl rollout pause deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+          kubectl rollout pause deployment/${{ inputs.deployment_name }} -n ${{ inputs.oke_namespace }}
 
           # apply kustomize and patch the deployment with the env secret version
-          kubectl apply -k . -n ${{ inputs.gke_namespace }} || {
+          kubectl apply -k . -n ${{ inputs.oke_namespace }} || {
             echo "Failed to apply kustomize"
-            kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+            kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.oke_namespace }}
             exit 1
           }
-          env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.gke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
+          env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.oke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
           release_time="$(date -Iseconds)"
-          kubectl patch deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
+          kubectl patch deployment/${{ inputs.deployment_name }} -n ${{ inputs.oke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
 
           # Resume rollout
-          kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.gke_namespace }}
+          kubectl rollout resume deployment/${{ inputs.deployment_name }} -n ${{ inputs.oke_namespace }}
         else
-          echo "Deployment ${{ inputs.deployment_name }} does not exist in namespace ${{ inputs.gke_namespace }}. This is the first time deploying."
-          kubectl apply -k . -n ${{ inputs.gke_namespace }}
+          echo "Deployment ${{ inputs.deployment_name }} does not exist in namespace ${{ inputs.oke_namespace }}. This is the first time deploying."
+          kubectl apply -k . -n ${{ inputs.oke_namespace }}
         fi
 
-        kubectl rollout status deployment/${{ inputs.deployment_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.gke_namespace }}
-        kubectl get services -o wide -n ${{ inputs.gke_namespace }}
+        kubectl rollout status deployment/${{ inputs.deployment_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.oke_namespace }}
+        kubectl get services -o wide -n ${{ inputs.oke_namespace }}
 
     - id: deploy-success-notification
       name: Deploy success notification
@@ -162,13 +172,12 @@ runs:
         FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
         MSGTYPE: interactive
         CONTENT: |
-          ** 🚀 ${{ inputs.deployment_name }} deployed to GKE success! **
+          ** 🚀 ${{ inputs.deployment_name }} deployed to OKE success! **
           - Image Version: ${{ inputs.image_tag_to_deploy }}
           - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
-          - GCP Project: ${{ inputs.gcp_project_id }}
-          - GKE Cluster: ${{ inputs.gke_cluster }}
-          - GKE Location: ${{ inputs.gke_location }}
-          - GKE Namespace: ${{ inputs.gke_namespace }}
+          - OKE Cluster: ${{ inputs.oke_cluster_ocid }}
+          - OKE Region: ${{ inputs.oci_cli_region }}
+          - OKE Namespace: ${{ inputs.oke_namespace }}
           - Trigger By: ${{ github.event_name	}}
           - Github Ref: ${{ github.ref }}
 
@@ -186,12 +195,11 @@ runs:
         FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
         MSGTYPE: interactive
         CONTENT: |
-          ** ❌ ${{ inputs.deployment_name }} deployed to GKE failed! **
+          ** ❌ ${{ inputs.deployment_name }} deployed to OKE failed! **
           - Image Version: ${{ inputs.image_tag_to_deploy }}
           - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
-          - GCP Project: ${{ inputs.gcp_project_id }}
-          - GKE Cluster: ${{ inputs.gke_cluster }}
-          - GKE Location: ${{ inputs.gke_location }}
-          - GKE Namespace: ${{ inputs.gke_namespace }}
+          - OKE Cluster: ${{ inputs.oke_cluster_ocid }}
+          - OKE Region: ${{ inputs.oci_cli_region }}
+          - OKE Namespace: ${{ inputs.oke_namespace }}
           - Trigger By: ${{ github.event_name	}}
           - Github Ref: ${{ github.ref }}
