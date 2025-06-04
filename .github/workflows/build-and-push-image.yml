@@ -114,8 +114,9 @@ jobs:
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
-      - name: Build and push Docker image ${{ steps.meta.outputs.tags }}, use_cache ${{ inputs.use_cache }}
-        id: build-and-push
+      - name: Build and push Docker image ${{ steps.meta.outputs.tags }} with cache
+        if: ${{ inputs.use_cache }}
+        id: build-and-push-with-cache
         uses: docker/build-push-action@v6.16.0
         with:
           context: ${{ inputs.context }}
@@ -124,7 +125,23 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: ${{ inputs.use_cache && 'type=gha,mode=max' || 'type=gha,mode=min' }}
+          cache-to: type=gha,mode=max
+          build-args: |
+            ${{ inputs.build_args }}
+            GITHUB_TOKEN=${{ secrets.GH_RELEASE_TOKEN }}
+
+      # Build and push Docker image with Buildx (don't push on PR)
+      # https://github.com/docker/build-push-action
+      - name: Build and push Docker image ${{ steps.meta.outputs.tags }} without cache
+        if: ${{ ! inputs.use_cache }}
+        id: build-and-push-without-cache
+        uses: docker/build-push-action@v6.16.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             ${{ inputs.build_args }}
             GITHUB_TOKEN=${{ secrets.GH_RELEASE_TOKEN }}
@@ -139,7 +156,7 @@ jobs:
         env:
           # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+          DIGEST: ${{ inputs.use_cache && steps.build-and-push-with-cache.outputs.digest || steps.build-and-push-without-cache.outputs.digest }}
         # This step uses the identity token to provision an ephemeral certificate
         # against the sigstore community Fulcio instance.
         run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
@@ -161,4 +178,4 @@ jobs:
             - ${{ github.event.head_commit.message }}
             ** [${{ github.ref_name}}](${{ fromJSON(steps.meta.outputs.json).tags[0] }}) by ${{ github.actor }} **
             ** DIGEST **
-            - ${{ steps.build-and-push.outputs.digest }}
+            - ${{ inputs.use_cache && steps.build-and-push-with-cache.outputs.digest || steps.build-and-push-without-cache.outputs.digest }}
