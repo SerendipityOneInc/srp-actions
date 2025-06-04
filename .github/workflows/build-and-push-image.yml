@@ -123,8 +123,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: ${{ inputs.use_cache && 'type=gha' || 'none' }}
-          cache-to: ${{ inputs.use_cache && 'type=gha,mode=max' || 'none' }}
+          cache-from: type=gha
+          cache-to: ${{ inputs.use_cache && 'type=gha,mode=max' || 'type=gha,mode=min' }}
           build-args: |
             ${{ inputs.build_args }}
             GITHUB_TOKEN=${{ secrets.GH_RELEASE_TOKEN }}
