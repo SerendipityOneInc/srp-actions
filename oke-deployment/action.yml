@@ -57,6 +57,11 @@ inputs:
     default: "dev"
     description: "Environment"
     required: false
+  kustomize_base:
+    type: string
+    description: "Path to the kustomize directory"
+    required: false
+    default: "kustomize"
   FEISHU_CUSTOMERBOT_WEBHOOK:
     description: "Feishu customer bot webhook"
     type: string
@@ -146,7 +151,7 @@ runs:
       name: "Deploy to OKE k8s"
       shell: bash
       run: |
-        cd kustomize/overlays/${{ inputs.environment }}
+        cd ${{ inputs.kustomize_base }}/overlays/${{ inputs.environment }}
         if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
           echo "using kustomize edit to set image"
           kustomize edit set image ${{ inputs.image_to_deploy }}=${{ inputs.image_tag_to_deploy }}
