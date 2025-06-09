@@ -1,0 +1,226 @@
+name: oke-deployment
+description: "Deploy Deployment to OKE"
+
+inputs:
+  oci_cli_user:
+    type: string
+    required: true
+  oci_cli_tenancy:
+    type: string
+    required: true
+  oci_cli_fingerprint:
+    type: string
+    required: true
+  oci_cli_key_content:
+    type: string
+    required: true
+  oci_cli_region:
+    type: string
+    required: true
+  oke_cluster_ocid:
+    type: string
+    required: true
+  oke_namespace:
+    description: "namespace of the serivce/pod to deploy"
+    type: string
+    required: true
+    default: "default"
+  statefulset_name:
+    type: string
+    required: true
+  should_export_env:
+    description: "whether to export env file"
+    type: boolean
+    required: false
+    default: true
+  image_to_deploy:
+    description: "image name to deploy"
+    type: string
+    required: false
+  image_tag_to_deploy:
+    description: "image tag to deploy"
+    type: string
+    required: false
+  repo_name:
+    type: string
+    required: false
+  env_file:
+    type: string
+    required: false
+  rollout_timeout:
+    type: string
+    description: "kubectl rollout timeout"
+    require: false
+    default: "10m"
+  environment:
+    type: string
+    default: "dev"
+    description: "Environment"
+    required: false
+  kustomize_base:
+    type: string
+    description: "Path to the kustomize directory"
+    required: false
+    default: "kustomize"
+  FEISHU_CUSTOMERBOT_WEBHOOK:
+    description: "Feishu customer bot webhook"
+    type: string
+    required: true
+  FEISHU_CUSTOMERBOT_SECRET:
+    description: "Feishu customer bot secret"
+    type: string
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install OCI CLI
+      shell: bash
+      run: |
+        pip install oci-cli
+        mkdir -p ~/.oci
+    - name: Configure OCI CLI
+      shell: bash
+      run: |
+        echo "${{ inputs.oci_cli_key_content }}" > ~/.oci/oci_api_key.pem
+        chmod 600 ~/.oci/oci_api_key.pem
+
+        cat > ~/.oci/config << EOF
+        [DEFAULT]
+        user=${{ inputs.oci_cli_user }}
+        fingerprint=${{ inputs.oci_cli_fingerprint }}
+        tenancy=${{ inputs.oci_cli_tenancy }}
+        region=${{ inputs.oci_cli_region }}
+        key_file=~/.oci/oci_api_key.pem
+        EOF
+
+        chmod 600 ~/.oci/config
+    - name: Verify OCI CLI
+      shell: bash
+      run: |
+        oci --version
+        oci iam region list --output table
+
+    - name: Configure Kubectl
+      uses: oracle-actions/configure-kubectl-oke@v1.5.0
+      id: configure-kubectl-oke-action
+      with:
+        cluster: ${{ inputs.oke_cluster_ocid }}
+      env:
+        OCI_CLI_USER: ${{ inputs.oci_cli_user }}
+        OCI_CLI_TENANCY: ${{ inputs.oci_cli_tenancy }}
+        OCI_CLI_FINGERPRINT: ${{ inputs.oci_cli_fingerprint }}
+        OCI_CLI_KEY_CONTENT: ${{ inputs.oci_cli_key_content }}
+        OCI_CLI_REGION: ${{ inputs.oci_cli_region }}
+
+    - name: Run Kubectl
+      shell: bash
+      run: |
+        kubectl config view
+        kubectl cluster-info
+        kubectl get nodes -A
+        kubectl get deployment -n ${{ inputs.oke_namespace }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref }}
+
+    - id: "export-env"
+      name: "Export env file"
+      shell: bash
+      run: |
+        if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+          cat ${{ inputs.env_file }} | base64 > ${{ inputs.repo_name }}.base64
+          env_content=$(cat ${{ inputs.repo_name }}.base64 | tr -d '\n')
+          echo "env_content=${env_content}" >> $GITHUB_OUTPUT
+        fi
+
+    - id: "update-k8s-env-secret"
+      name: "Update k8s env secret"
+      shell: bash
+      run: |
+        if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+          kubectl create secret generic ${{ inputs.repo_name }}-env-secret \
+            --from-env-file=${{ inputs.env_file }} \
+            --namespace=${{ inputs.oke_namespace }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+        fi
+
+    - id: "kustomize-deploy"
+      name: "Deploy to OKE k8s"
+      shell: bash
+      run: |
+        cd ${{ inputs.kustomize_base }}/overlays/${{ inputs.environment }}
+        if [[ "${{ inputs.should_export_env }}" == "true" ]]; then
+          echo "using kustomize edit to set image"
+          kustomize edit set image ${{ inputs.image_to_deploy }}=${{ inputs.image_tag_to_deploy }}
+        fi
+
+        # Check if the StatefulSet exists
+        if kubectl get statefulset/${{ inputs.statefulset_name }} -n ${{ inputs.oke_namespace }} > /dev/null 2>&1; then
+          echo "StatefulSet ${{ inputs.statefulset_name }} exists. Updating..."
+          
+          # Apply kustomize and patch the StatefulSet with the env secret version
+          kubectl apply -k . -n ${{ inputs.oke_namespace }} || {
+            echo "Failed to apply kustomize"
+            exit 1
+          }
+          
+          env_secret_version="$(kubectl get secret ${{ inputs.repo_name }}-env-secret -n ${{ inputs.oke_namespace }} -o jsonpath='{.metadata.resourceVersion}')"
+          release_time="$(date -Iseconds)"
+          kubectl patch statefulset/${{ inputs.statefulset_name }} -n ${{ inputs.oke_namespace }} -p "{\"spec\": {\"template\": {\"metadata\": {\"annotations\": {\"env_secret_version\": \"${env_secret_version}\", \"release_time\": \"${release_time}\"}}}}}"
+          
+        else
+          echo "StatefulSet ${{ inputs.statefulset_name }} does not exist in namespace ${{ inputs.oke_namespace }}. This is the first time deploying."
+          kubectl apply -k . -n ${{ inputs.oke_namespace }}
+        fi
+
+        # Using StatefulSet rollout status instead of deployment
+        kubectl rollout status statefulset/${{ inputs.statefulset_name }} --timeout ${{ inputs.rollout_timeout }} -n ${{ inputs.oke_namespace }}
+        kubectl get services -o wide -n ${{ inputs.oke_namespace }}
+
+    - id: deploy-success-notification
+      name: Deploy success notification
+      uses: SerendipityOneInc/feishu-actions@main
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** 🚀 ${{ inputs.statefulset_name }} deployed to OKE success! **
+          - Image Version: ${{ inputs.image_tag_to_deploy }}
+          - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+          - OKE Cluster: ${{ inputs.oke_cluster_ocid }}
+          - OKE Region: ${{ inputs.oci_cli_region }}
+          - OKE Namespace: ${{ inputs.oke_namespace }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}
+
+    - id: deploy-failure-notification
+      name: Deploy failure notification
+      uses: SerendipityOneInc/feishu-actions@main
+      if: failure()
+      with:
+        # The custom action has bugs, the with here is useless, just to supress vscode error
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+      env:
+        # Following are used for feishu message
+        FEISHU_CUSTOMERBOT_WEBHOOK: ${{ inputs.FEISHU_CUSTOMERBOT_WEBHOOK }}
+        FEISHU_CUSTOMERBOT_SECRET: ${{ inputs.FEISHU_CUSTOMERBOT_SECRET }}
+        MSGTYPE: interactive
+        CONTENT: |
+          ** ❌ ${{ inputs.statefulset_name }} deployed to OKE failed! **
+          - Image Version: ${{ inputs.image_tag_to_deploy }}
+          - Github Event Inputs Ref: ${{ github.event.inputs.ref }}
+          - OKE Cluster: ${{ inputs.oke_cluster_ocid }}
+          - OKE Region: ${{ inputs.oci_cli_region }}
+          - OKE Namespace: ${{ inputs.oke_namespace }}
+          - Trigger By: ${{ github.event_name	}}
+          - Github Ref: ${{ github.ref }}
