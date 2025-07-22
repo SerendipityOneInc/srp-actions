@@ -21,7 +21,9 @@ on:
             FEISHU_CUSTOMERBOT_WEBHOOK:
                 required: true
             FEISHU_CUSTOMERBOT_SECRET:
-                required: true    
+                required: true
+            GH_RELEASE_TOKEN:
+              required: true
 jobs:
     build-and-test:
         runs-on: ubuntu-latest
@@ -34,6 +36,8 @@ jobs:
                 python-version: ${{ inputs.python_version}}
                 cache: 'pip' # caching pip dependencies
             - name: Install dependencies
+              env:
+                GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
               run: |
                 pip install -r requirements.txt
                 [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
