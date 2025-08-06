@@ -160,7 +160,7 @@ jobs:
           DIGEST: ${{ inputs.use_cache && steps.build-and-push-with-cache.outputs.digest || steps.build-and-push-without-cache.outputs.digest }}
         # This step uses the identity token to provision an ephemeral certificate
         # against the sigstore community Fulcio instance.
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+        run: echo "${TAGS}" | xargs -I {} cosign sign --rekor-url https://rekor.sigstore.devdev --yes {}@${DIGEST}
       - name: Notify Lark Bot
         id: notify-lark-bot
         uses: SerendipityOneInc/feishu-actions@main
