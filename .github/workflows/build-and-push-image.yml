@@ -135,7 +135,7 @@ jobs:
       - name: Build and push Docker image ${{ steps.meta.outputs.tags }} without cache
         if: ${{ ! inputs.use_cache }}
         id: build-and-push-without-cache
-        uses: docker/build-push-action@v6.16.0
+        uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
