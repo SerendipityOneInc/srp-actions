@@ -69,7 +69,9 @@ runs:
       run: |
         TAG_NAME=${{ inputs.version }}
         DAG_ID=${{ inputs.dag_id }}
-        find dags/ -maxdepth 1 -name "${DAG_ID}.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
+        if [ "${DAG_ID}" != "common" ]; then
+          find dags/ -maxdepth 1 -name "${DAG_ID}.py" -type f | xargs sed -i "s/UNKNOWN_VERSION/${TAG_NAME}/g"
+        fi
 
     - id: 'upload-dags-to-gcs'
       name: Upload DAGs to GCS Airflow DAGS Folder
@@ -78,7 +80,9 @@ runs:
         if [ -d "dags/${{ inputs.dag_id }}" ]; then
           gsutil -m rsync -d -r dags/${{ inputs.dag_id }} gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}
         fi
-        gsutil -m cp dags/${{ inputs.dag_id }}.py gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}.py
+        if [ "${{ inputs.dag_id }}" != "common" ]; then
+          gsutil -m cp dags/${{ inputs.dag_id }}.py gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}.py
+        fi
 
     - id: deploy-success-notification
       name: Deploy success notification
