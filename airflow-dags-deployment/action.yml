@@ -74,14 +74,37 @@ runs:
         fi
 
     - id: 'upload-dags-to-gcs'
-      name: Upload DAGs to GCS Airflow DAGS Folder
+      name: Sync DAGs to GCS
       shell: bash
       run: |
-        if [ -d "dags/${{ inputs.dag_id }}" ]; then
-          gsutil -m rsync -d -r dags/${{ inputs.dag_id }} gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}
+        DAG_ID="${{ inputs.dag_id }}"
+        ENVIRONMENT="${{ inputs.environment }}"
+        GCS_BUCKET="gs://srp_airflow-${ENVIRONMENT}/dags"
+
+        # Handle directory: sync if exists, delete from GCS if not
+        if [ -d "dags/${DAG_ID}" ]; then
+          echo "Syncing directory: dags/${DAG_ID}"
+          gsutil -m rsync -d -r "dags/${DAG_ID}" "${GCS_BUCKET}/${DAG_ID}"
+        else
+          # Directory doesn't exist locally, remove from GCS if present
+          if gsutil ls "${GCS_BUCKET}/${DAG_ID}/" 2>/dev/null; then
+            echo "Directory not found locally, removing from GCS: ${GCS_BUCKET}/${DAG_ID}/"
+            gsutil -m rm -r "${GCS_BUCKET}/${DAG_ID}/"
+          fi
         fi
-        if [ "${{ inputs.dag_id }}" != "common" ]; then
-          gsutil -m cp dags/${{ inputs.dag_id }}.py gs://srp_airflow-${{ inputs.environment }}/dags/${{ inputs.dag_id }}.py
+
+        # Handle main .py file (skip for 'common')
+        if [ "${DAG_ID}" != "common" ]; then
+          if [ -f "dags/${DAG_ID}.py" ]; then
+            echo "Uploading file: dags/${DAG_ID}.py"
+            gsutil -m cp "dags/${DAG_ID}.py" "${GCS_BUCKET}/${DAG_ID}.py"
+          else
+            # .py file doesn't exist locally, remove from GCS if present
+            if gsutil ls "${GCS_BUCKET}/${DAG_ID}.py" 2>/dev/null; then
+              echo "File not found locally, removing from GCS: ${GCS_BUCKET}/${DAG_ID}.py"
+              gsutil rm "${GCS_BUCKET}/${DAG_ID}.py"
+            fi
+          fi
         fi
 
     - id: deploy-success-notification
