@@ -77,7 +77,8 @@ runs:
       shell: bash
       run: |
         # Authenticate with Digital Ocean
-        echo "${{ inputs.digitalocean_token }}" | doctl auth init --context default
+        echo "${{ inputs.digitalocean_token }}" > /tmp/do_token
+        doctl auth init --access-token "$(cat /tmp/do_token)" --context default
         doctl auth list
 
     - name: Verify doctl CLI
