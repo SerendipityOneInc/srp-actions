@@ -17,6 +17,11 @@ on:
                 description: 'Repository name'
                 type: string
                 required: true
+            runner_name:
+              description: "The name of the runner to run the workflow on"
+              type: string
+              default: ubuntu-latest
+              required: false
         secrets:
             FEISHU_CUSTOMERBOT_WEBHOOK:
                 required: true
@@ -26,7 +31,7 @@ on:
               required: true
 jobs:
     build-and-test:
-        runs-on: ubuntu-latest
+        runs-on: ${{ inputs.runner_name }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
