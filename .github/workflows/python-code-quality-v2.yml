@@ -1,0 +1,107 @@
+name: python-code-quality-v2
+
+on:
+    workflow_call:
+        inputs:
+            python_version:
+                description: 'Python version'
+                type: string
+                required: true
+                default: '3.10'
+            repo_name:
+                description: 'Repository name'
+                type: string
+                required: true
+            runner_name:
+              description: "The name of the runner to run the workflow on"
+              type: string
+              default: ubuntu-latest
+              required: false
+            ruff_config_file:
+              description: "Path to ruff configuration file (pyproject.toml or ruff.toml)"
+              type: string
+              default: ''
+              required: false
+            pyright_config_file:
+              description: "Path to pyright configuration file (pyrightconfig.json or pyproject.toml)"
+              type: string
+              default: ''
+              required: false
+        secrets:
+            FEISHU_CUSTOMERBOT_WEBHOOK:
+                required: true
+            FEISHU_CUSTOMERBOT_SECRET:
+                required: true
+            GH_RELEASE_TOKEN:
+              required: true
+jobs:
+    build-and-test:
+        runs-on: ${{ inputs.runner_name }}
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                python-version: ${{ inputs.python_version }}
+                cache: 'pip'
+            - name: Install dependencies
+              env:
+                GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+              run: |
+                git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+                pip install -r requirements.txt
+                [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
+                pip install ruff pyright
+            - name: Check code formatting with ruff
+              run: |
+                if [ -n "${{ inputs.ruff_config_file }}" ]; then
+                  ruff format --check --config ${{ inputs.ruff_config_file }} .
+                else
+                  ruff format --check .
+                fi
+            - name: Check code with ruff (linting and import sorting)
+              run: |
+                if [ -n "${{ inputs.ruff_config_file }}" ]; then
+                  ruff check --config ${{ inputs.ruff_config_file }} .
+                else
+                  ruff check .
+                fi
+            - name: Type check with pyright
+              run: |
+                if [ -n "${{ inputs.pyright_config_file }}" ]; then
+                  pyright --project ${{ inputs.pyright_config_file }}
+                else
+                  pyright
+                fi
+            - name: Run unit tests
+              id: run-unit-tests
+              run: |
+                export PYTHONPATH=$PYTHONPATH:$(pwd)
+                [ -f .env.example ] && cp .env.example .env
+                [ -f ${{ inputs.repo_name }}-dev.env.example ] && cp ${{ inputs.repo_name }}-dev.env.example ${{ inputs.repo_name }}-dev.env
+                pytest tests
+            - name: Upload logs as an artifact
+              if: failure() && steps.run-unit-tests.outcome == 'failure'
+              uses: actions/upload-artifact@v4
+              with:
+                name: uvicorn-logs
+                path: uvicorn.log
+            - name: Notify Lark Bot
+              id: notify-lark-bot
+              if: failure()
+              uses: SerendipityOneInc/feishu-actions@main
+              with:
+                FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+                FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+              env:
+                FEISHU_CUSTOMERBOT_WEBHOOK: ${{ secrets.FEISHU_CUSTOMERBOT_WEBHOOK }}
+                FEISHU_CUSTOMERBOT_SECRET: ${{ secrets.FEISHU_CUSTOMERBOT_SECRET }}
+                MSGTYPE: interactive
+                CONTENT: |
+                    ** ❌ [${{ github.event.repository.name }}](${{ github.event.repository.url }}) Code Quality Check Failed **
+                    ---
+                    - Pull Request: [${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})
+                    - Actor: ${{ github.actor}}
+                    - Commit: [${{ github.event.head_commit.id }}](${{ github.event.head_commit.url }})
+                    - Author: ${{ github.event.head_commit.author.name }}
