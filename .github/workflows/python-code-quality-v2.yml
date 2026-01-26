@@ -27,6 +27,21 @@ on:
               type: string
               default: ''
               required: false
+            enable_coverage:
+              description: "Enable test coverage reporting and enforcement"
+              type: boolean
+              default: false
+              required: false
+            coverage_threshold:
+              description: "Minimum coverage percentage required (only used if enable_coverage is true)"
+              type: string
+              default: '80'
+              required: false
+            coverage_source:
+              description: "Source directory to measure coverage for"
+              type: string
+              default: 'app'
+              required: false
         secrets:
             FEISHU_CUSTOMERBOT_WEBHOOK:
                 required: true
@@ -80,7 +95,11 @@ jobs:
                 export PYTHONPATH=$PYTHONPATH:$(pwd)
                 [ -f .env.example ] && cp .env.example .env
                 [ -f ${{ inputs.repo_name }}-dev.env.example ] && cp ${{ inputs.repo_name }}-dev.env.example ${{ inputs.repo_name }}-dev.env
-                pytest tests
+                if [ "${{ inputs.enable_coverage }}" == "true" ]; then
+                  pytest tests --cov=${{ inputs.coverage_source }} --cov-report=term-missing --cov-fail-under=${{ inputs.coverage_threshold }}
+                else
+                  pytest tests
+                fi
             - name: Upload logs as an artifact
               if: failure() && steps.run-unit-tests.outcome == 'failure'
               uses: actions/upload-artifact@v4
