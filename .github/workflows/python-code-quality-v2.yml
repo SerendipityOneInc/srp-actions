@@ -55,12 +55,15 @@ jobs:
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
+
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
                 python-version: ${{ inputs.python_version }}
                 cache: 'pip'
+
             - name: Install dependencies
+              id: install-deps
               env:
                 GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
               run: |
@@ -68,29 +71,39 @@ jobs:
                 pip install -r requirements.txt
                 [ -f requirements-dev.txt ] && pip install -r requirements-dev.txt
                 pip install ruff pyright
+
             - name: Check code formatting with ruff
+              id: ruff-format
               run: |
                 if [ -n "${{ inputs.ruff_config_file }}" ]; then
                   ruff format --check --config ${{ inputs.ruff_config_file }} .
                 else
                   ruff format --check .
                 fi
+
             - name: Check code with ruff (linting and import sorting)
+              id: ruff-lint
+              if: success() || failure()
               run: |
                 if [ -n "${{ inputs.ruff_config_file }}" ]; then
                   ruff check --config ${{ inputs.ruff_config_file }} .
                 else
                   ruff check .
                 fi
+
             - name: Type check with pyright
+              id: pyright-check
+              if: success() || failure()
               run: |
                 if [ -n "${{ inputs.pyright_config_file }}" ]; then
                   pyright --project ${{ inputs.pyright_config_file }}
                 else
                   pyright
                 fi
+
             - name: Run unit tests
               id: run-unit-tests
+              if: success() || failure()
               run: |
                 export PYTHONPATH=$PYTHONPATH:$(pwd)
                 [ -f .env.example ] && cp .env.example .env
@@ -100,12 +113,76 @@ jobs:
                 else
                   pytest tests
                 fi
+
             - name: Upload logs as an artifact
               if: failure() && steps.run-unit-tests.outcome == 'failure'
               uses: actions/upload-artifact@v4
               with:
                 name: uvicorn-logs
                 path: uvicorn.log
+
+            - name: Generate job summary
+              if: always()
+              run: |
+                echo "## Code Quality Check Results" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "| Check | Result |" >> $GITHUB_STEP_SUMMARY
+                echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+                # Formatting check
+                if [ "${{ steps.ruff-format.outcome }}" == "success" ]; then
+                  echo "| Formatting (ruff format) | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
+                elif [ "${{ steps.ruff-format.outcome }}" == "failure" ]; then
+                  echo "| Formatting (ruff format) | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "| Formatting (ruff format) | ⏭️ SKIPPED |" >> $GITHUB_STEP_SUMMARY
+                fi
+
+                # Linting check
+                if [ "${{ steps.ruff-lint.outcome }}" == "success" ]; then
+                  echo "| Linting (ruff check) | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
+                elif [ "${{ steps.ruff-lint.outcome }}" == "failure" ]; then
+                  echo "| Linting (ruff check) | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "| Linting (ruff check) | ⏭️ SKIPPED |" >> $GITHUB_STEP_SUMMARY
+                fi
+
+                # Type check
+                if [ "${{ steps.pyright-check.outcome }}" == "success" ]; then
+                  echo "| Type Check (pyright) | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
+                elif [ "${{ steps.pyright-check.outcome }}" == "failure" ]; then
+                  echo "| Type Check (pyright) | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "| Type Check (pyright) | ⏭️ SKIPPED |" >> $GITHUB_STEP_SUMMARY
+                fi
+
+                # Unit tests
+                if [ "${{ steps.run-unit-tests.outcome }}" == "success" ]; then
+                  echo "| Unit Tests (pytest) | ✅ PASS |" >> $GITHUB_STEP_SUMMARY
+                elif [ "${{ steps.run-unit-tests.outcome }}" == "failure" ]; then
+                  echo "| Unit Tests (pytest) | ❌ FAIL |" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "| Unit Tests (pytest) | ⏭️ SKIPPED |" >> $GITHUB_STEP_SUMMARY
+                fi
+
+                echo "" >> $GITHUB_STEP_SUMMARY
+
+                # Coverage info
+                if [ "${{ inputs.enable_coverage }}" == "true" ]; then
+                  echo "**Coverage threshold:** ${{ inputs.coverage_threshold }}% (source: \`${{ inputs.coverage_source }}\`)" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                fi
+
+                # Overall verdict
+                if [ "${{ steps.ruff-format.outcome }}" == "success" ] && \
+                   [ "${{ steps.ruff-lint.outcome }}" == "success" ] && \
+                   [ "${{ steps.pyright-check.outcome }}" == "success" ] && \
+                   [ "${{ steps.run-unit-tests.outcome }}" == "success" ]; then
+                  echo "### ✅ Overall: PASS" >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "### ❌ Overall: FAIL" >> $GITHUB_STEP_SUMMARY
+                fi
+
             - name: Notify Lark Bot
               id: notify-lark-bot
               if: failure()
@@ -120,7 +197,12 @@ jobs:
                 CONTENT: |
                     ** ❌ [${{ github.event.repository.name }}](${{ github.event.repository.url }}) Code Quality Check Failed **
                     ---
+                    **Results:**
+                    - Formatting (ruff): ${{ steps.ruff-format.outcome == 'success' && '✅ PASS' || steps.ruff-format.outcome == 'failure' && '❌ FAIL' || '⏭️ SKIP' }}
+                    - Linting (ruff): ${{ steps.ruff-lint.outcome == 'success' && '✅ PASS' || steps.ruff-lint.outcome == 'failure' && '❌ FAIL' || '⏭️ SKIP' }}
+                    - Type Check (pyright): ${{ steps.pyright-check.outcome == 'success' && '✅ PASS' || steps.pyright-check.outcome == 'failure' && '❌ FAIL' || '⏭️ SKIP' }}
+                    - Unit Tests (pytest): ${{ steps.run-unit-tests.outcome == 'success' && '✅ PASS' || steps.run-unit-tests.outcome == 'failure' && '❌ FAIL' || '⏭️ SKIP' }}
+                    ---
                     - Pull Request: [${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})
-                    - Actor: ${{ github.actor}}
-                    - Commit: [${{ github.event.head_commit.id }}](${{ github.event.head_commit.url }})
-                    - Author: ${{ github.event.head_commit.author.name }}
+                    - Actor: ${{ github.actor }}
+                    - Commit: [${{ github.sha }}](${{ github.event.repository.html_url }}/commit/${{ github.sha }})

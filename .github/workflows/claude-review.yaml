@@ -1,8 +1,45 @@
 name: Claude Auto Review
 
 on:
+  # Direct trigger for repos that include this workflow file
   pull_request:
     types: [opened, synchronize]
+
+  # Reusable workflow trigger for consumer repos
+  workflow_call:
+    inputs:
+      model:
+        description: "Bedrock model ID for Claude"
+        type: string
+        default: "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        required: false
+      timeout_minutes:
+        description: "Timeout for the review action in minutes"
+        type: string
+        default: "60"
+        required: false
+      allowed_bots:
+        description: "Bot usernames allowed to trigger (e.g. srp-claude-assistant)"
+        type: string
+        default: ""
+        required: false
+      enable_verdict:
+        description: "When true, appends JSON verdict prompt and parses APPROVE/REQUEST_CHANGES result"
+        type: boolean
+        default: true
+        required: false
+      additional_prompt:
+        description: "Extra instructions appended to the review prompt"
+        type: string
+        default: ""
+        required: false
+    secrets:
+      APP_ID:
+        required: true
+      APP_PRIVATE_KEY:
+        required: true
+      AWS_ROLE_TO_ASSUME:
+        required: true
 
 jobs:
   auto-review:
@@ -29,25 +66,99 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: us-east-1
 
+      - name: Build review prompt
+        id: build-prompt
+        env:
+          ADDITIONAL_PROMPT: ${{ inputs.additional_prompt }}
+          ENABLE_VERDICT: ${{ inputs.enable_verdict }}
+        run: |
+          {
+            echo "prompt<<PROMPT_DELIMITER"
+            cat << 'BASE_PROMPT'
+          Review this pull request and provide comprehensive feedback.
+
+          Focus on:
+          - Code quality and best practices
+          - Potential bugs or issues
+          - Performance considerations
+          - Security implications
+          - Test coverage
+          - Documentation updates if needed
+
+          Provide constructive feedback with specific suggestions for improvement.
+          Use inline comments to highlight specific areas of concern.
+          BASE_PROMPT
+
+            if [ -n "$ADDITIONAL_PROMPT" ]; then
+              echo ""
+              echo "$ADDITIONAL_PROMPT"
+            fi
+
+            if [ "$ENABLE_VERDICT" != "false" ]; then
+              cat << 'VERDICT_PROMPT'
+
+          After your review, you MUST output a JSON block at the very end of your response in exactly this format:
+
+          ```json
+          {"review_result": "APPROVE" | "REQUEST_CHANGES", "summary": "<one-line summary of your verdict>"}
+          ```
+
+          Use "APPROVE" if the code is acceptable (minor suggestions are fine).
+          Use "REQUEST_CHANGES" if there are significant issues that must be fixed before merging.
+          VERDICT_PROMPT
+            fi
+
+            echo "PROMPT_DELIMITER"
+          } >> $GITHUB_OUTPUT
+
       - name: Automatic PR Review
+        id: review
         uses: anthropics/claude-code-action@beta
         with:
           trigger_phrase: "@claude"
-          timeout_minutes: "60"
+          allowed_bots: ${{ inputs.allowed_bots || '' }}
+          timeout_minutes: ${{ inputs.timeout_minutes || '60' }}
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
-          model: "us.anthropic.claude-sonnet-4-20250514-v1:0"
-          direct_prompt: |
-            Please review this pull request and provide comprehensive feedback.
+          model: ${{ inputs.model || 'us.anthropic.claude-sonnet-4-20250514-v1:0' }}
+          direct_prompt: ${{ steps.build-prompt.outputs.prompt }}
 
-            Focus on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security implications
-            - Test coverage
-            - Documentation updates if needed
+      - name: Parse review result
+        id: parse
+        if: format('{0}', inputs.enable_verdict) != 'false'
+        run: |
+          # Fetch recent PR comments via GitHub API
+          COMMENTS=$(curl -s -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments?per_page=10&sort=created&direction=desc")
 
-            Provide constructive feedback with specific suggestions for improvement.
-            Use inline comments to highlight specific areas of concern.
-          # allowed_tools: "mcp__github__add_pull_request_review_comment"
+          # Find the latest comment containing a review_result JSON block
+          REVIEW_JSON=$(echo "$COMMENTS" | python3 -c "
+          import json, sys, re
+          comments = json.load(sys.stdin)
+          for c in comments:
+              body = c.get('body', '')
+              # Look for JSON block with review_result
+              matches = re.findall(r'\{[^{}]*\"review_result\"[^{}]*\}', body)
+              if matches:
+                  result = json.loads(matches[-1])
+                  print(json.dumps(result))
+                  sys.exit(0)
+          # If no review result found, default to approve
+          print(json.dumps({'review_result': 'APPROVE', 'summary': 'Review completed (no explicit verdict)'}))
+          ")
+
+          RESULT=$(echo "$REVIEW_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['review_result'])")
+          SUMMARY=$(echo "$REVIEW_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['summary'])")
+
+          echo "result=$RESULT" >> $GITHUB_OUTPUT
+          echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+
+      - name: Set review status
+        if: always() && format('{0}', inputs.enable_verdict) != 'false' && steps.parse.outputs.result != ''
+        run: |
+          if [ "${{ steps.parse.outputs.result }}" = "APPROVE" ]; then
+            echo "✅ Review passed: ${{ steps.parse.outputs.summary }}"
+          else
+            echo "❌ Review failed: ${{ steps.parse.outputs.summary }}"
+            exit 1
+          fi
