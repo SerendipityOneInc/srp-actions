@@ -1,8 +1,35 @@
 name: Claude Auto Review
 
 on:
+  # Direct trigger for repos that include this workflow file
   pull_request:
     types: [opened, synchronize]
+
+  # Reusable workflow trigger for consumer repos
+  workflow_call:
+    inputs:
+      model:
+        description: "Bedrock model ID for Claude"
+        type: string
+        default: "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        required: false
+      timeout_minutes:
+        description: "Timeout for the review action in minutes"
+        type: string
+        default: "60"
+        required: false
+      review_focus:
+        description: "Comma-separated list of focus areas (e.g. security,performance,testing)"
+        type: string
+        default: ""
+        required: false
+    secrets:
+      APP_ID:
+        required: true
+      APP_PRIVATE_KEY:
+        required: true
+      AWS_ROLE_TO_ASSUME:
+        required: true
 
 jobs:
   auto-review:
@@ -33,21 +60,84 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           trigger_phrase: "@claude"
-          timeout_minutes: "60"
+          timeout_minutes: ${{ inputs.timeout_minutes || '60' }}
           github_token: ${{ steps.app-token.outputs.token }}
           use_bedrock: "true"
-          model: "us.anthropic.claude-sonnet-4-20250514-v1:0"
+          model: ${{ inputs.model || 'us.anthropic.claude-sonnet-4-20250514-v1:0' }}
           direct_prompt: |
-            Please review this pull request and provide comprehensive feedback.
+            Review this pull request and provide a structured review with a clear PASS or FAIL verdict.
 
-            Focus on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security implications
-            - Test coverage
-            - Documentation updates if needed
+            ## Review Instructions
 
-            Provide constructive feedback with specific suggestions for improvement.
-            Use inline comments to highlight specific areas of concern.
-          # allowed_tools: "mcp__github__add_pull_request_review_comment"
+            Analyze the PR changes thoroughly and evaluate them against the following criteria.
+            For each category, assign a status: PASS, WARN, or FAIL.
+
+            ### Review Categories
+
+            1. **Code Quality & Best Practices**
+               - Clean, readable, and maintainable code
+               - Follows project conventions and patterns
+               - No code duplication or unnecessary complexity
+
+            2. **Bugs & Correctness**
+               - Logic errors, off-by-one errors, race conditions
+               - Proper error handling and edge cases
+               - Null/undefined safety
+
+            3. **Security**
+               - No hardcoded secrets or credentials
+               - Input validation and sanitization
+               - No injection vulnerabilities (SQL, XSS, command injection)
+               - Proper authentication/authorization checks
+
+            4. **Performance**
+               - No unnecessary loops, allocations, or API calls
+               - Efficient data structures and algorithms
+               - No N+1 query patterns or missing pagination
+
+            5. **Testing**
+               - Adequate test coverage for new/changed code
+               - Tests cover edge cases and error paths
+               - Tests are meaningful, not just for coverage
+
+            6. **Documentation**
+               - Public APIs and complex logic are documented
+               - Breaking changes are noted
+               - README or docs updated if needed
+
+            ${{ inputs.review_focus && format('### Additional Focus Areas\nPay special attention to: {0}\n', inputs.review_focus) || '' }}
+
+            ## Output Format
+
+            Structure your review as follows:
+
+            ### Review Summary
+
+            | Category | Status | Notes |
+            |----------|--------|-------|
+            | Code Quality | PASS/WARN/FAIL | Brief note |
+            | Bugs & Correctness | PASS/WARN/FAIL | Brief note |
+            | Security | PASS/WARN/FAIL | Brief note |
+            | Performance | PASS/WARN/FAIL | Brief note |
+            | Testing | PASS/WARN/FAIL | Brief note |
+            | Documentation | PASS/WARN/FAIL | Brief note |
+
+            ### Verdict: PASS or FAIL
+
+            **PASS**: All categories are PASS or WARN (with minor issues only).
+            **FAIL**: Any category has FAIL status (blocking issues found).
+
+            Use this exact format for the verdict line:
+            - `## Verdict: ✅ PASS` - if the PR is acceptable
+            - `## Verdict: ❌ FAIL` - if the PR has blocking issues
+
+            ### Details
+
+            For each finding, use inline review comments on the specific lines.
+            Group your findings by severity:
+            - **Critical (FAIL)**: Must be fixed before merging
+            - **Warning (WARN)**: Should be addressed but not blocking
+            - **Info**: Suggestions for improvement
+
+            If the verdict is FAIL, clearly list all critical issues that must be resolved.
+            If the verdict is PASS, acknowledge what was done well alongside any warnings.

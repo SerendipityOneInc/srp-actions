@@ -1,0 +1,28 @@
+# Claude Auto Review - Caller Workflow Template
+#
+# Copy this file to your repository at .github/workflows/auto-review.yml
+# This calls the reusable Claude auto-review workflow from srp-actions.
+#
+# Required secrets (set in your repo or org settings):
+#   - APP_ID: GitHub App ID for token generation
+#   - APP_PRIVATE_KEY: GitHub App private key
+#   - AWS_ROLE_TO_ASSUME: AWS IAM role ARN for Bedrock access
+#
+name: Auto Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  claude-review:
+    uses: SerendipityOneInc/srp-actions/.github/workflows/claude-review.yaml@main
+    # Optional: customize the review
+    # with:
+    #   model: "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    #   timeout_minutes: "60"
+    #   review_focus: "security,performance"
+    secrets:
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
