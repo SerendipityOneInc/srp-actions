@@ -21,8 +21,7 @@ jobs:
     # with:
     #   model: "us.anthropic.claude-sonnet-4-20250514-v1:0"
     #   timeout_minutes: "60"
-    #   review_focus: "security,performance"
-    secrets:
-      APP_ID: ${{ secrets.APP_ID }}
-      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
-      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+    #   allowed_bots: "srp-claude-assistant"
+    #   enable_verdict: false
+    #   additional_prompt: "Pay special attention to security and performance."
+    secrets: inherit
