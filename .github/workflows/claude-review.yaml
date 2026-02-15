@@ -129,13 +129,13 @@ jobs:
         run: |
           # Fetch recent PR comments via GitHub API
           COMMENTS=$(curl -s -H "Authorization: token ${{ steps.app-token.outputs.token }}" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments?per_page=10&sort=created&direction=desc")
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments?per_page=10")
 
           # Find the latest comment containing a review_result JSON block
           REVIEW_JSON=$(echo "$COMMENTS" | python3 -c "
           import json, sys, re
           comments = json.load(sys.stdin)
-          for c in comments:
+          for c in reversed(comments):
               body = c.get('body', '')
               # Look for JSON block with review_result
               matches = re.findall(r'\{[^{}]*\"review_result\"[^{}]*\}', body)
