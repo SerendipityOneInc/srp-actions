@@ -42,6 +42,16 @@ on:
               type: string
               default: 'app'
               required: false
+            enable_coverage_badge:
+              description: "Update a Gist-based coverage badge after tests (only on push to default branch)"
+              type: boolean
+              default: false
+              required: false
+            coverage_gist_id:
+              description: "Gist ID for the coverage badge JSON (required if enable_coverage_badge is true)"
+              type: string
+              default: ''
+              required: false
             enable_mongodb:
               description: "Enable MongoDB service container for integration tests"
               type: boolean
@@ -59,6 +69,8 @@ on:
                 required: true
             GH_RELEASE_TOKEN:
               required: true
+            GIST_TOKEN:
+              required: false
 jobs:
     build-and-test:
         runs-on: ${{ inputs.runner_name }}
@@ -134,10 +146,25 @@ jobs:
                 [ -f .env.example ] && cp .env.example .env
                 [ -f ${{ inputs.repo_name }}-dev.env.example ] && cp ${{ inputs.repo_name }}-dev.env.example ${{ inputs.repo_name }}-dev.env
                 if [ "${{ inputs.enable_coverage }}" == "true" ]; then
-                  pytest tests --cov=${{ inputs.coverage_source }} --cov-report=term-missing --cov-fail-under=${{ inputs.coverage_threshold }}
+                  pytest tests --cov=${{ inputs.coverage_source }} --cov-report=term-missing --cov-fail-under=${{ inputs.coverage_threshold }} | tee pytest-output.txt
+                  COVERAGE=$(grep '^TOTAL' pytest-output.txt | awk '{print $NF}' | tr -d '%')
+                  echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
                 else
                   pytest tests
                 fi
+
+            - name: Update coverage badge
+              if: inputs.enable_coverage_badge && steps.run-unit-tests.outputs.coverage && github.event_name == 'push'
+              uses: schneegans/dynamic-badges-action@v1.7.0
+              with:
+                auth: ${{ secrets.GIST_TOKEN }}
+                gistID: ${{ inputs.coverage_gist_id }}
+                filename: coverage-badge.json
+                label: coverage
+                message: ${{ steps.run-unit-tests.outputs.coverage }}%
+                valColorRange: ${{ steps.run-unit-tests.outputs.coverage }}
+                minColorRange: 50
+                maxColorRange: 100
 
             - name: Upload logs as an artifact
               if: failure() && steps.run-unit-tests.outcome == 'failure'
