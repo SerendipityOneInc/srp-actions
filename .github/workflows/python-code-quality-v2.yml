@@ -70,6 +70,11 @@ jobs:
             env:
               MONGO_INITDB_ROOT_USERNAME: mongo
               MONGO_INITDB_ROOT_PASSWORD: mongo
+            options: >-
+              --health-cmd "mongosh --eval 'db.runCommand({ping:1})' --quiet"
+              --health-interval 10s
+              --health-timeout 5s
+              --health-retries 5
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
@@ -123,7 +128,7 @@ jobs:
               id: run-unit-tests
               if: success() || failure()
               env:
-                TEST_MONGODB_HOST: ${{ inputs.enable_mongodb && 'localhost' || '' }}
+                TEST_MONGODB_HOST: ${{ inputs.enable_mongodb && '127.0.0.1' || '' }}
               run: |
                 export PYTHONPATH=$PYTHONPATH:$(pwd)
                 [ -f .env.example ] && cp .env.example .env
